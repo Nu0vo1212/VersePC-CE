@@ -1,0 +1,1598 @@
+/* ==========================================================================
+   assistant.css — 「Verse 助手」页面（内嵌 AI 对话）
+   --------------------------------------------------------------------------
+   布局：
+     #page-assistant.active            → 撑满内容区、自身不滚动
+       .va-shell                       → 左（会话列表） + 右（聊天区）
+         .va-side                      → 会话列表（可隐藏）
+         .va-main
+           .va-head                    → 顶栏（标题 / 范围说明 / 清空）
+           .va-scroll                  → 唯一滚动容器（消息流）
+           .va-compose-wrap            → 底部输入区
+
+   约定：
+     - 全部使用 base.css / themes.css 的设计变量，浅色与深色主题自动适配
+     - 类名统一 va- 前缀，避免与既有样式冲突
+   ========================================================================== */
+
+/* ---------- 页面容器：改为固定高度三行布局，滚动交给 .va-scroll ---------- */
+#page-assistant.active {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 侧边栏导航按钮：文字比其他项略长，单独压一点字号防止换行 */
+.nav-btn-assistant span {
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+/* ==========================================================
+   Shell
+   ========================================================== */
+.va-shell {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-primary);
+    box-shadow: var(--shadow);
+}
+
+/* ==========================================================
+   左侧：会话列表
+   ========================================================== */
+.va-side {
+    width: 232px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    transition: width 0.28s var(--ease-out-expo), opacity 0.2s ease;
+    overflow: hidden;
+}
+
+.va-shell--side-hidden .va-side {
+    width: 0;
+    opacity: 0;
+    border-right: none;
+    pointer-events: none;
+}
+
+.va-side-head {
+    padding: 12px 12px 8px;
+    flex-shrink: 0;
+}
+
+.va-new-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+.va-new-btn:hover {
+    background: var(--bg-hover);
+    border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+.va-new-btn:active {
+    transform: scale(0.98);
+}
+
+.va-new-btn svg {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+}
+
+.va-side-label {
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.va-convo-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 8px 8px;
+    scrollbar-width: thin;
+}
+
+.va-convo-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.va-convo-list::-webkit-scrollbar-thumb {
+    background: var(--bg-active);
+    border-radius: 3px;
+}
+
+.va-convo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px 8px 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.35;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.va-convo:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.va-convo.is-active {
+    background: var(--bg-active);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.va-convo-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.va-convo-del {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.va-convo:hover .va-convo-del,
+.va-convo.is-active .va-convo-del {
+    opacity: 1;
+}
+
+.va-convo-del:hover {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--red);
+}
+
+.va-side-empty {
+    padding: 18px 12px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.va-side-foot {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.va-model {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 2px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.va-model-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.va-model-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--green);
+    box-shadow: 0 0 0 3px var(--green-glow);
+}
+
+.va-model.is-off .va-model-dot {
+    background: var(--text-muted);
+    box-shadow: none;
+}
+
+.va-model.is-off {
+    color: var(--text-muted);
+}
+
+.va-side-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+/* 没有 viewBox 尺寸的 SVG 默认会撑到 300x150，必须显式约束 */
+.va-side-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.va-side-btn:hover,
+.va-side-btn.is-active {
+    background: var(--bg-hover);
+    border-color: rgba(var(--accent-rgb), 0.35);
+    color: var(--text-primary);
+}
+
+/* ==========================================================
+   右侧：聊天区
+   ========================================================== */
+.va-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-primary);
+}
+
+.va-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card-glass);
+}
+
+.va-icon-btn {
+    flex-shrink: 0;
+    height: 30px;
+    min-width: 30px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.va-icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+.va-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.va-head-title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.va-head-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.va-head-name .va-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.va-head-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.va-head-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ---------- 模型切换（顶栏） ---------- */
+.va-model-switch {
+    position: relative;
+}
+
+.va-model-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    max-width: 260px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.va-model-btn:hover {
+    background: var(--bg-hover);
+    border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+.va-model-btn-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.va-model-btn-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+}
+
+.va-model-caret {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.va-model-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    width: 268px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    box-shadow: var(--shadow-lg);
+    animation: vaFadeUp 0.16s var(--ease-out-expo) both;
+}
+
+.va-model-menu-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 4px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.va-model-menu-hint {
+    margin-left: auto;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.va-model-menu-list {
+    max-height: 216px;
+    overflow-y: auto;
+    padding: 4px 0;
+    scrollbar-width: thin;
+}
+
+.va-model-menu-empty {
+    padding: 10px 6px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+/* 有预设列表时，提示作为列表下方的补充说明，加一条分隔线 */
+.va-model-menu-list + .va-model-menu-empty {
+    border-top: 1px solid var(--border);
+    padding: 8px 6px;
+}
+
+.va-model-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.va-model-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.va-model-item.is-active {
+    color: var(--text-primary);
+    font-weight: 600;
+    background: var(--bg-secondary);
+}
+
+.va-model-item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.va-model-tag {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--green-glow);
+    color: var(--green);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.va-model-check {
+    flex-shrink: 0;
+    color: var(--green);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.va-model-custom {
+    display: flex;
+    gap: 6px;
+    padding: 6px 4px 4px;
+    border-top: 1px solid var(--border);
+}
+
+.va-model-input {
+    flex: 1;
+    min-width: 0;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+}
+
+.va-model-input:focus {
+    border-color: rgba(var(--accent-rgb), 0.45);
+    background: var(--bg-primary);
+}
+
+.va-model-input::placeholder {
+    color: var(--text-muted);
+}
+
+.va-model-save {
+    flex-shrink: 0;
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.16s ease, opacity 0.16s ease;
+}
+
+.va-model-save:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.va-model-save:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.va-model-menu-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px 0;
+}
+
+.va-model-flash {
+    font-size: 11.5px;
+    color: var(--green);
+}
+
+.va-model-link {
+    margin-left: auto;
+    padding: 2px 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.16s ease;
+}
+
+.va-model-link:hover {
+    color: var(--text-primary);
+}
+
+/* ---------- 消息滚动区 ---------- */
+.va-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 22px 20px 12px;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+}
+
+.va-scroll::-webkit-scrollbar {
+    width: 7px;
+}
+
+.va-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.va-scroll::-webkit-scrollbar-thumb {
+    background: var(--bg-active);
+    border-radius: 4px;
+}
+
+/* ---------- 空态 / 欢迎 ---------- */
+.va-welcome {
+    max-width: 620px;
+    margin: 4vh auto 0;
+    text-align: center;
+    animation: vaFadeUp 0.4s var(--ease-out-expo) both;
+}
+
+.va-welcome-logo {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), rgba(var(--accent-rgb), 0.04));
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+
+.va-welcome-logo svg {
+    width: 28px;
+    height: 28px;
+}
+
+.va-welcome h3 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.va-welcome p {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    margin-bottom: 22px;
+}
+
+.va-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+.va-chip {
+    padding: 8px 13px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+.va-chip:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: rgba(var(--accent-rgb), 0.35);
+    transform: translateY(-1px);
+}
+
+.va-chip:active {
+    transform: translateY(0) scale(0.98);
+}
+
+/* ---------- 消息 ---------- */
+.va-msgs {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 820px;
+    margin: 0 auto;
+}
+
+.va-msg {
+    display: flex;
+    gap: 10px;
+    animation: vaMsgIn 0.28s var(--ease-out-expo) both;
+}
+
+.va-msg--user {
+    flex-direction: row-reverse;
+}
+
+.va-avatar {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    user-select: none;
+}
+
+.va-msg--assistant .va-avatar {
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-rgb), 0.05));
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+
+.va-msg--user .va-avatar {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.va-avatar svg {
+    width: 16px;
+    height: 16px;
+}
+
+.va-bubble {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.va-msg--assistant .va-bubble {
+    flex: 1;
+}
+
+.va-msg--user .va-bubble {
+    max-width: 76%;
+    padding: 9px 13px;
+    border-radius: 12px 12px 3px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+
+.va-msg--error .va-bubble {
+    padding: 10px 13px;
+    border-radius: var(--radius-md);
+    background: rgba(220, 38, 38, 0.07);
+    border: 1px solid rgba(220, 38, 38, 0.28);
+    color: var(--red);
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.va-plain {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+}
+
+/* 流式上屏时保留换行，并把光标贴在最后一行末尾 */
+.va-plain--stream {
+    display: inline;
+}
+
+/* 空回复占位 */
+.va-plain--muted {
+    color: var(--text-muted);
+}
+
+/* ---------- 助手 Markdown 内容 ---------- */
+.va-md {
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.va-md > *:first-child { margin-top: 0; }
+.va-md > *:last-child { margin-bottom: 0; }
+
+.va-md p {
+    margin: 0 0 10px;
+}
+
+.va-md h1, .va-md h2, .va-md h3, .va-md h4 {
+    margin: 16px 0 8px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.va-md h1 { font-size: 17px; }
+.va-md h2 { font-size: 15.5px; }
+.va-md h3, .va-md h4 { font-size: 14px; }
+
+.va-md ul, .va-md ol {
+    margin: 0 0 10px;
+    padding-left: 22px;
+}
+
+.va-md li {
+    margin: 3px 0;
+}
+
+.va-md li > p {
+    margin: 0;
+}
+
+.va-md a {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.va-md strong {
+    font-weight: 600;
+}
+
+.va-md code {
+    font-family: 'Cascadia Code', 'Consolas', 'SFMono-Regular', monospace;
+    font-size: 12px;
+    padding: 1.5px 5px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+
+.va-md pre {
+    margin: 0 0 10px;
+    padding: 11px 13px;
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+}
+
+.va-md pre code {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre;
+}
+
+.va-md blockquote {
+    margin: 0 0 10px;
+    padding: 6px 12px;
+    border-left: 3px solid var(--border);
+    color: var(--text-secondary);
+}
+
+.va-md table {
+    border-collapse: collapse;
+    margin: 0 0 10px;
+    font-size: 12.5px;
+    width: 100%;
+}
+
+.va-md th, .va-md td {
+    border: 1px solid var(--border);
+    padding: 6px 9px;
+    text-align: left;
+}
+
+.va-md th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+}
+
+.va-md hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+}
+
+/* 打字光标 */
+.va-caret {
+    display: inline-block;
+    width: 7px;
+    height: 14px;
+    margin-left: 2px;
+    vertical-align: -2px;
+    background: var(--text-secondary);
+    border-radius: 1px;
+    animation: vaCaret 0.9s steps(2, start) infinite;
+}
+
+/* 消息操作条 */
+.va-msg-tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+}
+
+.va-msg:hover .va-msg-tools,
+.va-msg--last .va-msg-tools {
+    opacity: 1;
+}
+
+.va-msg-tools button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.va-msg-tools button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.va-msg-tools button.is-ok {
+    color: var(--green);
+}
+
+/* 操作执行结果小条 */
+.va-act {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    border: 1px dashed var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.va-act svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    color: var(--green);
+}
+
+.va-act span {
+    flex: 1;
+    min-width: 0;
+}
+
+.va-act button {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 11.5px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.va-act button:hover {
+    background: var(--bg-hover);
+    border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.va-icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.va-icon-btn:disabled:hover {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: transparent;
+}
+
+/* 思考中 */
+.va-typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 2px;
+}
+
+.va-typing i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: vaTyping 1.2s ease-in-out infinite;
+}
+
+.va-typing i:nth-child(2) { animation-delay: 0.16s; }
+.va-typing i:nth-child(3) { animation-delay: 0.32s; }
+
+/* ==========================================================
+   底部输入区
+   ========================================================== */
+.va-compose-wrap {
+    flex-shrink: 0;
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-glass);
+}
+
+.va-compose-inner {
+    max-width: 820px;
+    margin: 0 auto;
+}
+
+.va-config-tip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(217, 119, 6, 0.09);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+    font-size: 12.5px;
+    color: var(--warning);
+    line-height: 1.5;
+}
+
+.va-config-tip button {
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 5px 10px;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.16s ease;
+}
+
+.va-config-tip button:hover {
+    background: rgba(217, 119, 6, 0.14);
+}
+
+.va-compose {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 7px 8px 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg-primary);
+    box-shadow: var(--shadow);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.va-compose:focus-within {
+    border-color: rgba(var(--accent-rgb), 0.45);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
+}
+
+.va-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.6;
+    max-height: 156px;
+    padding: 5px 0;
+    scrollbar-width: thin;
+}
+
+.va-input::placeholder {
+    color: var(--text-muted);
+}
+
+.va-send {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+    transition: background 0.18s ease, transform 0.12s ease, opacity 0.18s ease;
+}
+
+.va-send:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.va-send:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.va-send:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.va-send svg {
+    width: 16px;
+    height: 16px;
+}
+
+.va-send--stop {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+.va-foot-hint {
+    margin-top: 7px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* ==========================================================
+   动画
+   ========================================================== */
+@keyframes vaFadeUp {
+    from { opacity: 0; translate: 0 10px; }
+    to   { opacity: 1; translate: 0 0; }
+}
+
+@keyframes vaMsgIn {
+    from { opacity: 0; translate: 0 6px; }
+    to   { opacity: 1; translate: 0 0; }
+}
+
+@keyframes vaTyping {
+    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+    30%           { opacity: 1;   transform: translateY(-3px); }
+}
+
+@keyframes vaCaret {
+    0%, 50%   { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .va-msg,
+    .va-welcome { animation: none; }
+    .va-typing i { animation: none; opacity: 0.6; }
+    .va-caret { animation: none; }
+}
+
+/* ==========================================================
+   窄窗口：自动隐藏会话列表
+   ========================================================== */
+@media (max-width: 980px) {
+    .va-side {
+        width: 196px;
+    }
+    .va-msgs,
+    .va-compose-inner {
+        max-width: 100%;
+    }
+}
+
+/* ==========================================================
+   AI 配置面板（页内抽屉） — 2026-09-19 随 V 岛移除新增
+   扁平规范：纯色底、无 backdrop-filter
+   ========================================================== */
+.va-settings {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.42);
+}
+
+.va-settings-panel {
+    width: min(440px, 92%);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+}
+
+.va-settings-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--border);
+}
+.va-settings-head h4 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.va-settings-head p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+.va-settings-close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+}
+.va-settings-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.va-settings-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.va-settings-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+}
+
+/* ---- 表单字段 ---- */
+.va-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.va-field-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.va-field-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.va-select,
+.va-input-text {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.va-select:focus,
+.va-input-text:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.va-select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+.va-key-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.va-key-row .va-input-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.va-key-toggle {
+    flex: 0 0 auto;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+}
+.va-key-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* ---- 面板按钮 ---- */
+.va-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease;
+}
+.va-btn:active { transform: scale(0.97); }
+.va-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.va-btn-primary {
+    background: var(--accent);
+    color: var(--accent-text);
+}
+.va-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.va-btn-ghost {
+    background: transparent;
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+.va-btn-ghost:hover:not(:disabled) { background: var(--bg-hover); }
+
+/* ---- 工具能力状态条 ---- */
+.va-tools-state {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    transition: border-color 200ms ease, color 200ms ease;
+}
+.va-tools-state.is-on {
+    border-color: var(--green-glow, rgba(22, 163, 74, 0.3));
+    color: var(--text-secondary);
+}
+.va-tools-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    margin-top: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+.va-tools-state.is-on .va-tools-dot {
+    background: var(--green, #16a34a);
+    box-shadow: 0 0 0 3px var(--green-glow, rgba(22, 163, 74, 0.15));
+}
+
+/* ---- 测试结果 ---- */
+.va-settings-result {
+    padding: 8px 11px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    word-break: break-all;
+    animation: vaMsgIn 200ms ease both;
+}
+.va-settings-result.is-error {
+    border-color: var(--red-glow, rgba(220, 38, 38, 0.35));
+    color: var(--red, #dc2626);
+}
+
+/* ==========================================================
+   工具调用卡片（Agent 循环）
+   状态机：running → await / done / error / cancelled
+   ========================================================== */
+.va-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.va-tool {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    font-size: 12px;
+    animation: vaToolIn 240ms cubic-bezier(.4, 0, .2, 1) both;
+    transition: border-color 200ms ease, background 200ms ease;
+}
+.va-tool-icon {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--text-muted);
+}
+.va-tool-icon svg { width: 14px; height: 14px; }
+.va-tool-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.va-tool-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.va-tool-result {
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.va-tool-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+}
+.va-tool-run,
+.va-tool-skip {
+    padding: 4px 12px;
+    border-radius: var(--radius-md, 6px);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 160ms ease, transform 120ms ease;
+}
+.va-tool-run {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: transparent;
+}
+.va-tool-run:hover { background: var(--accent-hover); }
+.va-tool-skip {
+    background: transparent;
+    color: var(--text-secondary);
+}
+.va-tool-skip:hover { background: var(--bg-hover); }
+.va-tool-run:active,
+.va-tool-skip:active { transform: scale(0.95); }
+
+/* ---- 各状态着色 ---- */
+.va-tool.is-await {
+    border-color: var(--warning, #d97706);
+    background: color-mix(in srgb, var(--warning, #d97706) 7%, var(--bg-secondary));
+}
+.va-tool.is-await .va-tool-icon { color: var(--warning, #d97706); }
+.va-tool.is-running .va-tool-icon { color: var(--accent); }
+.va-tool.is-done {
+    border-color: var(--green-glow, rgba(22, 163, 74, 0.3));
+}
+.va-tool.is-done .va-tool-icon { color: var(--green, #16a34a); }
+.va-tool.is-error {
+    border-color: var(--red-glow, rgba(220, 38, 38, 0.35));
+}
+.va-tool.is-error .va-tool-icon,
+.va-tool.is-error .va-tool-result { color: var(--red, #dc2626); }
+.va-tool.is-cancelled { opacity: 0.6; }
+.va-tool.is-cancelled .va-tool-icon { color: var(--text-muted); }
+
+/* ---- 执行中旋转圈 ---- */
+.va-tool-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: vaSpin 700ms linear infinite;
+}
+
+/* ---- 配置未就绪提示条 ---- */
+.va-config-tip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--warning, #d97706);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--warning, #d97706) 8%, var(--bg-primary));
+    font-size: 12px;
+    color: var(--text-secondary);
+    animation: vaMsgIn 240ms ease both;
+}
+.va-config-tip button {
+    flex: 0 0 auto;
+    padding: 4px 12px;
+    border: none;
+    border-radius: var(--radius-md, 6px);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 160ms ease;
+}
+.va-config-tip button:hover { background: var(--accent-hover); }
+
+/* ---- 本段动画 ---- */
+/* 抽屉进出场：由 page-assistant.js 的 <transition name="va-drawer"> 驱动
+   打开：遮罩淡入 + 面板从右缘整体滑入（大面板用 --ease-sidebar）
+   关闭：反向滑出，不再瞬间消失 */
+.va-drawer-enter-active { transition: opacity 200ms ease; }
+.va-drawer-leave-active { transition: opacity 260ms ease; }
+.va-drawer-enter-from,
+.va-drawer-leave-to { opacity: 0; }
+
+.va-drawer-enter-active .va-settings-panel {
+    transition: transform 320ms var(--ease-sidebar);
+}
+.va-drawer-leave-active .va-settings-panel {
+    transition: transform 260ms cubic-bezier(0.4, 0, 1, 1);
+}
+.va-drawer-enter-from .va-settings-panel,
+.va-drawer-leave-to .va-settings-panel {
+    transform: translateX(100%);
+}
+
+@keyframes vaFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes vaSlideIn {
+    from { transform: translateX(24px); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+}
+@keyframes vaToolIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes vaSpin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .va-drawer-enter-active,
+    .va-drawer-leave-active,
+    .va-drawer-enter-active .va-settings-panel,
+    .va-drawer-leave-active .va-settings-panel,
+    .va-tool,
+    .va-config-tip,
+    .va-settings-result { transition: none; animation: none; }
+    .va-tool-spin { animation-duration: 1.6s; }
+}
