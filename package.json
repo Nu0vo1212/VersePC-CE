@@ -1,0 +1,22 @@
+{
+  "name": "verse-tauri",
+  "version": "1.0.0",
+  "description": "VersePC-CE - 基于 Tauri 的 Minecraft 启动器（VersePC2 社区版）",
+  "license": "GPL-3.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:fast": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dev:serve": "node scripts/dev-server.mjs",
+    "build": "node scripts/build-portable.mjs",
+    "build:setup": "tauri build --bundles nsis",
+    "build:portable": "node scripts/build-portable.mjs",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "dependencies": {
+    "vue": "^3.5.40"
+  }
+}
