@@ -1,0 +1,223 @@
+/* plugins.css - 插件市场页样式 */
+
+.plugins-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 24px;
+  margin-bottom: 16px;
+}
+
+.plugins-top-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 窄窗口下让动作按钮整行换行，而不是被压扁或横向溢出
+     （按钮 flex:0 0 auto + nowrap，本身不收缩；搜索框有 min-width 兜底） */
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+/* 搜索框：占满剩余宽度，并**先于按钮**被压缩
+   ----------------------------------------------------------------------------
+   原来这里是 width: 100%，而 .btn 带 `overflow: hidden` —— 对 flex 项来说
+   "自动最小尺寸"在 overflow 非 visible 时会退化成 0，于是右侧两个按钮会被
+   压缩到 63px（padding 20 + 文字 48 = 需要 68px），文字右侧被 overflow 裁掉，
+   看起来就是"字偏移/字被切"。改成 flex:1 + min-width:0：让搜索框自己让位，
+   按钮不再参与收缩。
+   另外 .search-bar 自带 margin-bottom:16px，在行内会让搜索框视觉上偏上 8px，
+   与右侧按钮错位，这里清零。 */
+.plugins-search {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 160px;
+  margin-bottom: 0;
+}
+
+/* 右侧动作按钮：与搜索框等高、不收缩、文字水平垂直都居中
+   （高度 34px 与 .search-input 的 8px 上下内边距 + 14px 字号一致） */
+.plugins-action-btn {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 14px;
+  gap: 6px;
+  justify-content: center;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.plugins-action-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.plugins-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plugins-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.plugins-tab {
+  padding: 8px 16px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.plugins-tab:hover {
+  color: var(--text-primary);
+}
+.plugins-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.plugins-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 20px;
+}
+.plugins-state-text {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.plugins-error-icon {
+  color: var(--danger, #e5534b);
+  width: 44px;
+  height: 44px;
+}
+.plugins-error-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.plugins-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  padding: 8px 24px 24px;
+  overflow-y: auto;
+}
+
+/* 插件卡片：不透明实色卡片
+   ----------------------------------------------------------------------------
+   原先硬编码的是 `background: rgba(255,255,255,0.08)` + 白色内阴影 + 半透明白边，
+   也就是"玻璃拟态"那一套 —— 那是上一轮删除毛玻璃/液态玻璃时漏掉的一处。
+   后果在浅色主题下最明显：卡片底色几乎等于页面底色，白底白卡、边框也看不见。
+   现在改用 --bg-card / --border / --bg-tertiary 三个主题变量，三档主题自动跟随
+   （浅色 #fafafa 卡 / #eeeef0 图标块，深色 #181818 卡 / #1c1c1c 图标块）。 */
+.plugin-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 16px 16px;
+  border-radius: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.plugin-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+}
+
+.plugin-icon-wrap {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: 26%;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.plugin-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.plugin-icon-fallback {
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.plugin-icon-fallback svg {
+  width: 44px;
+  height: 44px;
+}
+
+.plugin-main {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.plugin-name {
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-cat {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  background: rgba(var(--accent-rgb, 79, 158, 255), 0.15);
+  color: var(--accent);
+}
+.plugin-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plugin-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.plugin-installed-tag {
+  color: #3fb950;
+}
+
+.plugin-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+.plugin-actions .btn {
+  flex: 1;
+}
