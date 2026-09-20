@@ -42,6 +42,7 @@ const dlManager = {
         if (this.tasks.has(id)) return;
         this.tasks.set(id, { id, name, type, sessionId, iconUrl: iconUrl || '', progress: 0, status: 'downloading', message: '', files: [], stageHistory: [], expanded: false });
         this.order.push(id);
+        try { if (window.AppLog) window.AppLog.op('下载', '新建任务「' + (name || id) + '」（类型 ' + (type || 'other') + '）'); } catch (e) {}
         this.updateFab();
         this.render();
     },
@@ -95,6 +96,16 @@ const dlManager = {
             smoothProgress = targetProgress;
         }
         Object.assign(task, data);
+        // 成功/失败只记一次，避免轮询反复写日志
+        if ((data.status === 'completed' || data.status === 'failed') && !task._loggedTerminal) {
+            task._loggedTerminal = true;
+            try {
+                if (window.AppLog) {
+                    if (data.status === 'completed') window.AppLog.op('下载', '任务完成「' + (task.name || id) + '」');
+                    else window.AppLog.error('下载', '任务失败「' + (task.name || id) + '」' + (data.message ? ' - ' + data.message : ''));
+                }
+            } catch (e) {}
+        }
         task.progress = Math.min(task.progress || 0, 100);
         if (data.status === 'completed' || data.status === 'failed') {
             task.progress = data.status === 'completed' ? 100 : Math.min(task.progress, 100);
