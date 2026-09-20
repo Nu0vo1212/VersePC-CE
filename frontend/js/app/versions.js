@@ -596,6 +596,13 @@ async function navigateToPage(pageName) {
     return;
   }
 
+  // 页面跳转写入「运行日志」，排查「点了没反应」这类问题时非常有用
+  try {
+    var _navLabel = (window.VerseAssistant && window.VerseAssistant.PAGE_LABELS &&
+      window.VerseAssistant.PAGE_LABELS[pageName]) || pageName;
+    if (window.AppLog) window.AppLog.op('页面', '进入「' + _navLabel + '」(' + pageName + ')');
+  } catch (e) {}
+
   // Verse 助手页：进入时刷新 AI 配置状态、运行环境上下文与滚动位置
   if (pageName === 'assistant') {
     setTimeout(() => {
