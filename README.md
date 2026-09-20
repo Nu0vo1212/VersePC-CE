@@ -46,8 +46,6 @@
 - **陶瓦联机（Terracotta）**：内网穿透，无需公网 IP 即可和朋友联机，支持主机 / 客户端模式
 - **FRP 内网穿透**：内置 LoliaFrp、OpenFrp、SakuraFrp 三个平台，一键创建隧道完成穿透
 - **局域网端口映射（Lan Portmap）**：UPnP 自动端口映射
-- **私人服务器**：一键开服与管理
-- **红石联机**：内网穿透联机服务
 
 ### 实用工具
 - **测试服务器**：输入 IP/域名即可查询 MC 服务器状态（MOTD、在线人数、版本、延迟，支持 SRV 记录解析）
@@ -147,11 +145,11 @@ npm run build:setup    # NSIS 安装包
 本项目基于 [GNU General Public License v3.0](LICENSE) 发布。
 
 ```
-Copyright (C) 2026 豆杰
+Copyright (C) 2026 Nu0vo1212
 ```
 
 ---
 
 <p align="center">
-  Made with ❤️ by 豆杰
+  Made by Nu0vo1212
 </p>
