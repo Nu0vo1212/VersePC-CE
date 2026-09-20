@@ -157,8 +157,15 @@ async function _tauriApiProxy(method, path, params, body) {
         throw new Error('[API] 统一桥接层 window.bridge 不可用');
     })();
 
+    const _t0 = Date.now();
     try {
-        return await Promise.race([_work, _timeoutP]);
+        const res = await Promise.race([_work, _timeoutP]);
+        // 上报到「运行日志」（poll 接口成功时会被 AppLog 自行忽略）
+        try { if (window.AppLog) window.AppLog.api(method, path, res && res.status, Date.now() - _t0); } catch (e) {}
+        return res;
+    } catch (e) {
+        try { if (window.AppLog) window.AppLog.api(method, path, 0, Date.now() - _t0, e); } catch (e2) {}
+        throw e;
     } finally {
         if (_timer) clearTimeout(_timer);
     }
