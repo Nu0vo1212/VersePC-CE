@@ -30,7 +30,8 @@
   - page-modpacks   整合包
   - page-settings   设置
   - page-accounts   账户
-  - page-java       Java管理
+  - page-java 已并入 设置 → 启动（Java 管理内容迁移到 page-settings-launch）
+  - page-runtime-log 程序运行日志（每一步操作与报错，非游戏日志）
   - page-downloads  下载管理
   
   模态框：
@@ -162,10 +163,19 @@
       <line x1="12" y1="19" x2="20" y2="19"/>
     </symbol>
 
-    <!-- Verse 助手 - 对话气泡 + 星芒 -->
-    <symbol id="icon-assistant" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>
-      <path d="M12 7.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5L8.6 11l2.5-.9z"/>
+    <!-- 运行日志 - 文档 + 记录行（区别于控制台的终端图标） -->
+    <symbol id="icon-runtime-log" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 3 14 8 19 8"/>
+      <line x1="8.5" y1="12" x2="15.5" y2="12"/>
+      <line x1="8.5" y1="15.5" x2="15.5" y2="15.5"/>
+      <line x1="8.5" y1="19" x2="12" y2="19"/>
+    </symbol>
+
+    <!-- Verse 助手 - 星芒（AI 助手标志） -->
+    <symbol id="icon-assistant" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 3.5C11.5 7.9 13.6 10 18 10.5C13.6 11 11.5 13.1 11 17.5C10.5 13.1 8.4 11 4 10.5C8.4 10 10.5 7.9 11 3.5Z"/>
+      <path d="M18.6 14.2C18.84 16.36 19.84 17.36 22 17.6C19.84 17.84 18.84 18.84 18.6 21C18.36 18.84 17.36 17.84 15.2 17.6C17.36 17.36 18.36 16.36 18.6 14.2Z"/>
     </symbol>
   </svg>
 
@@ -357,13 +367,13 @@
               </button>
             </div>
           </div>
-          <button class="nav-btn" data-page="java" title="Java管理">
-            <svg class="nav-icon-svg"><use href="#icon-java"/></svg>
-            <span>Java</span>
-          </button>
           <button class="nav-btn" data-page="plugins" title="插件" id="nav-plugins-btn">
             <svg class="nav-icon-svg"><use href="#icon-plugins"/></svg>
             <span>插件</span>
+          </button>
+          <button class="nav-btn" data-page="runtime-log" title="运行日志（程序每一步操作与报错的记录，与游戏日志无关）" id="nav-runtime-log-btn">
+            <svg class="nav-icon-svg"><use href="#icon-runtime-log"/></svg>
+            <span>运行日志</span>
           </button>
         </div>
         <div class="sidebar-footer">
@@ -586,8 +596,8 @@
           <!-- Vue 渐进式改造：内容由 PageSettingsOther 组件渲染 -->
         </div>
 
-        <div id="page-java" class="page">
-          <!-- Vue 渐进式改造：内容由 PageJava 组件渲染 -->
+        <div id="page-runtime-log" class="page">
+          <!-- Vue 渐进式改造：内容由 PageRuntimeLog 组件渲染（程序运行日志，非游戏日志） -->
         </div>
 
 
@@ -652,6 +662,8 @@
   <!-- ====================================================================== -->
   <!-- Tauri 桥接层：在 Tauri 环境下创建 window.electronAPI，必须在所有业务 js 之前加载 -->
   <script src="js/tauri-bridge.js" defer></script>
+  <!-- 运行日志核心：尽量早加载，才能捕获启动阶段的报错与操作 -->
+  <script src="js/app/app-log.js" defer></script>
   <script src="js/utils.js" defer></script>
   <script src="js/api.js" defer></script>
   <script src="js/wallpaper-engine.js" defer></script>
@@ -732,7 +744,7 @@
   <script src="js/vue/page-settings-launch.js" defer></script>
   <script src="js/vue/page-settings-personalize.js" defer></script>
   <script src="js/vue/page-settings-other.js" defer></script>
-  <script src="js/vue/page-java.js" defer></script>
+  <script src="js/vue/page-runtime-log.js" defer></script>
   <script src="js/vue/page-downloads.js" defer></script>
   <script src="js/vue/page-console.js" defer></script>
   <script src="js/vue/page-assistant.js" defer></script>
@@ -776,7 +788,7 @@
         ['PageSettingsLaunch', '#page-settings-launch'],
         ['PageSettingsPersonalize', '#page-settings-personalize'],
         ['PageSettingsOther', '#page-settings-other'],
-        ['PageJava', '#page-java'],
+        ['PageRuntimeLog', '#page-runtime-log'],
         ['PageDownloads', '#page-downloads'],
         ['PageConsole', '#page-console'],
         ['PageAssistant', '#page-assistant']
