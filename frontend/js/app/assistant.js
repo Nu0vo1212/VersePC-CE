@@ -55,8 +55,9 @@
     'settings-launch': '设置 · 启动',
     'settings-personalize': '设置 · 个性化',
     'settings-other': '设置 · 其他',
-    'java': 'Java 管理',
+    'java': '设置 · 启动（Java 管理）',
     'plugins': '插件',
+    'runtime-log': '运行日志',
     'console': '日志',
     'downloads': '下载任务',
     'assistant': 'Verse 助手'
