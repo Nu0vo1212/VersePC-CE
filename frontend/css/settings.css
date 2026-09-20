@@ -987,3 +987,124 @@
     font-size: 11px;
     color: var(--text-muted);
 }
+
+/* ==========================================================================
+   运行日志页（page-runtime-log）
+   复用 .console-output / .console-line 的基础样式，这里只补筛选条与排版。
+   作用域全部挂在 .rt-log-* 下，不影响「日志」页的游戏控制台。
+   ========================================================================== */
+.rt-log-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.rt-log-filters {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.18s var(--ease-out-expo, ease-out),
+                border-color 0.18s var(--ease-out-expo, ease-out),
+                background-color 0.18s var(--ease-out-expo, ease-out);
+}
+
+.rt-chip:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.rt-chip.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-primary);
+}
+
+.rt-chip-num {
+    font-size: 11px;
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+}
+
+.rt-log-search {
+    flex: 1 1 200px;
+    min-width: 0;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+.rt-log-auto {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.rt-log-stat {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.rt-log-output {
+    height: calc(100vh - var(--titlebar-height) - var(--launchbar-height) - 210px);
+    min-height: 240px;
+}
+
+.rt-log-output .console-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 1px 0;
+    line-height: 1.55;
+}
+
+/* 等级配色：op 用强调色突出「都干了什么」，info 压低成次要色 */
+.rt-log-output .console-line.op    { color: var(--accent); }
+.rt-log-output .console-line.info  { color: var(--text-secondary); }
+
+.rt-log-time {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+}
+
+.rt-log-tag {
+    flex-shrink: 0;
+    min-width: 52px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 11px;
+    text-align: center;
+    align-self: center;
+}
+
+.rt-log-msg {
+    flex: 1;
+    word-break: break-all;
+}
+
+.rt-log-count {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    opacity: 0.8;
+}
