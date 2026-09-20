@@ -72,6 +72,8 @@ async function handleLaunch() {
   const versionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) || (launchVersionCustomSelect ? launchVersionCustomSelect.getValue() : '');
   if (!versionId) { showToast('请选择游戏版本', 'error'); window._versepc_launching = false; return; }
 
+  try { if (window.AppLog) window.AppLog.op('启动', '开始启动游戏版本 ' + versionId + (_quickPlayWorld ? '（快速进入存档 ' + _quickPlayWorld + '）' : '')); } catch (e) {}
+
   _cachedLastLaunchVersion = versionId;
   try { await window.electronAPI.store.set('versepc_last_launch_version', versionId); } catch (_) {}
 
@@ -129,7 +131,7 @@ async function handleLaunch() {
           const ok = await waitJavaAutoInstall(ai.sessionId, requiredVer, rangeDesc);
           if (!ok) {
             setLaunchStep('java-check', 'error', `Java ${rangeDesc} 自动下载失败`);
-            showLaunchError(`Java 自动下载失败，请检查网络后重试，或前往 Java 管理页面手动安装。<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往 Java 管理页面 →</a>`);
+            showLaunchError(`Java 自动下载失败，请检查网络后重试，或前往「设置 → 启动」手动安装。<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往「设置 → 启动」→</a>`);
             launchBtn.disabled = false;
             homeLaunchBtn.disabled = false;
             window._versepc_launching = false;
@@ -141,7 +143,7 @@ async function handleLaunch() {
         }
       } catch (e) {
         setLaunchStep('java-check', 'error', `Java ${rangeDesc} 自动下载失败`);
-        showLaunchError(`${e.message || 'Java 自动下载失败'}<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往 Java 管理页面 →</a>`);
+        showLaunchError(`${e.message || 'Java 自动下载失败'}<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往「设置 → 启动」→</a>`);
         launchBtn.disabled = false;
         homeLaunchBtn.disabled = false;
         window._versepc_launching = false;
@@ -154,7 +156,7 @@ async function handleLaunch() {
       } catch (_) {}
       if (!depCheck.java || !depCheck.java.ok) {
         setLaunchStep('java-check', 'error', `Java ${rangeDesc} 仍未就绪`);
-        showLaunchError(`${serverMsg || `未找到合适的Java运行环境（需要 Java ${rangeDesc}）`}<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往 Java 管理页面 →</a>`);
+        showLaunchError(`${serverMsg || `未找到合适的Java运行环境（需要 Java ${rangeDesc}）`}<br><a href="javascript:void(0)" id="launch-nav-java" style="color:var(--accent);text-decoration:underline;cursor:pointer;">前往「设置 → 启动」→</a>`);
         launchBtn.disabled = false;
         homeLaunchBtn.disabled = false;
         window._versepc_launching = false;
@@ -376,6 +378,7 @@ async function startLaunchDepDownload(versionId, sessionId) {
         if (launchResult.success) {
           setLaunchStep('launching', 'success', '游戏进程已创建');
           updateLaunchProgress(100);
+          try { if (window.AppLog) window.AppLog.op('启动', '游戏启动成功，pid=' + (launchResult.pid || launchResult.processId || '未知')); } catch (e) {}
           showToast('游戏启动成功', 'success');
           launchBtn.classList.add('running');
           launchBtn.querySelector('span').textContent = '启动游戏';
@@ -877,6 +880,12 @@ function showLaunchError(msg, details = null) {
   const errorSection = document.getElementById('launch-error-section');
   const errorMsg = document.getElementById('launch-error-msg');
   const repairGuide = document.getElementById('launch-repair-guide');
+  try {
+    if (window.AppLog) {
+      window.AppLog.error('启动', '启动失败: ' + (msg || '未知错误') +
+        (details && details.error ? ' | ' + details.error : ''));
+    }
+  } catch (e) {}
   if (errorSection) errorSection.style.display = 'flex';
   if (repairGuide) {
     repairGuide.style.display = 'flex';
@@ -896,13 +905,13 @@ function showLaunchError(msg, details = null) {
   if (errorMsg) {
     errorMsg.innerHTML = (msg || '未知错误').replace(/\n/g, '<br>');
     errorMsg.title = fullMsg;
-    // 绑定"前往 Java 管理页面"链接（避免依赖内联 onclick，兼容 CSP）
+    // 绑定"前往 Java 管理"链接（避免依赖内联 onclick，兼容 CSP）
     const navLink = errorMsg.querySelector('#launch-nav-java');
     if (navLink) {
       navLink.addEventListener('click', (e) => {
         e.preventDefault();
         closeLaunchModal();
-        navigateToPage('java');
+        navigateToPage('settings-launch');
       });
     }
   }
