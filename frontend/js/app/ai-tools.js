@@ -139,6 +139,44 @@
     throw new Error('找不到版本「' + raw + '」。已安装：' + (list.map(function (v) { return v.id; }).join('、') || '（无）'));
   }
 
+  /**
+   * 解析「要安装的远程版本」的 json 下载地址。
+   * 后端安装接口要求 url 非空，Agent 一般只给版本号，所以要在这里补全：
+   *   1. 调用方传了 url  → 直接用；
+   *   2. 命中全局远程清单 allVersions → 取其 url；
+   *   3. 还没有清单 → 拉一次 /api/versions 再找。
+   * 返回 { id, url }；找不到时抛人话错误。
+   */
+  function _resolveVersionUrl(api, version, givenUrl) {
+    var want = String(version || '').trim();
+    if (givenUrl) return Promise.resolve({ id: want, url: givenUrl });
+    if (!want) throw new Error('缺少必要参数「version」');
+
+    function findIn(list) {
+      if (!Array.isArray(list)) return null;
+      var low = want.toLowerCase();
+      // 先精确，再忽略大小写（快照版本号可能大小写不同）
+      return list.filter(function (x) { return x && x.id === want && x.url; })[0] ||
+             list.filter(function (x) { return x && String(x.id || '').toLowerCase() === low && x.url; })[0] ||
+             null;
+    }
+
+    var cached = [];
+    try { if (typeof allVersions !== 'undefined' && Array.isArray(allVersions)) cached = allVersions; } catch (e) {}
+    var hit = findIn(cached);
+    if (hit) return Promise.resolve({ id: hit.id, url: hit.url });
+
+    if (api && typeof api.getVersions === 'function') {
+      return api.getVersions(false).then(function (data) {
+        var fresh = (data && data.versions) || [];
+        var h = findIn(fresh);
+        if (h) return { id: h.id, url: h.url };
+        throw new Error('官方远程清单里没有版本「' + want + '」，请确认版本号（例如 1.20.1）是否正确。');
+      });
+    }
+    throw new Error('拿不到版本清单，无法解析「' + want + '」的下载地址（网络或宿主不可用）。');
+  }
+
   // ========================================================================
   // 工具定义
   // ========================================================================
@@ -406,7 +444,7 @@
           type: 'string',
           description: '页面 id',
           enum: ['home', 'versions', 'installed-versions', 'mods', 'modpacks', 'datapacks', 'resourcepacks',
-                 'shaders', 'toolbox', 'accounts', 'java', 'plugins', 'console', 'downloads',
+                 'shaders', 'toolbox', 'accounts', 'plugins', 'runtime-log', 'console', 'downloads',
                  'settings-launch', 'settings-personalize', 'settings-other', 'assistant']
         }
       },
@@ -573,15 +611,35 @@
       desc: '安装一个全新的原版游戏版本（只装原版，不含加载器）。必须用户确认。',
       kind: 'write',
       params: {
-        version: { type: 'string', description: '要安装的游戏版本号，例如 1.20.1' }
+        version: { type: 'string', description: '要安装的游戏版本号，例如 1.20.1' },
+        url: { type: 'string', description: '可选的版本 JSON 下载地址；一般不用传，助手会自动从远程清单里查。' }
       },
       required: ['version'],
       run: function (args) {
         var api = _api();
         _need(api && api.installVersion, '版本安装接口');
         var v = String(_require(args, 'version', 'version')).trim();
-        return api.installVersion('', v, null, 'mojang', '').then(function () {
-          return '已开始安装原版 ' + v + '，可在「已安装版本」页看进度。';
+        var givenUrl = String((args && args.url) || '').trim();
+
+        // 后端 /api/install-start 要求 versionId 与 url 同时非空。
+        // Agent 通常只给版本号，所以这里自动从远程清单解析出该版本的 json 地址。
+        return _resolveVersionUrl(api, v, givenUrl).then(function (resolved) {
+          // 关键：必须走「版本管理页」那条安装链路（全局 installVersion），
+          // 它内部会 showInstallModal + pollInstallProgress：
+          //   · 在下载列表里建一条任务（图标/进度/取消都能用）
+          //   · 轮询安装进度并写回任务
+          // 之前直接调 api.installVersion 只会在后台静默开一个会话，
+          // 用户既看不到进度也没法取消 —— 就是「安装没进下载任务」的原因。
+          var start = (typeof window.installVersion === 'function') ? window.installVersion : null;
+          if (start) {
+            return Promise.resolve(start(resolved.url, resolved.id, null, 'mojang', '')).then(function () {
+              return '已开始安装原版 ' + v + '，进度已加入右下角的「下载」任务列表。';
+            });
+          }
+          return api.installVersion(resolved.url, resolved.id, null, 'mojang', '');
+        }).then(function (res) {
+          if (res && res.success === false) throw new Error(res.error || '安装失败');
+          return '已开始安装原版 ' + v + '，进度已加入右下角的「下载」任务列表。';
         });
       }
     },
