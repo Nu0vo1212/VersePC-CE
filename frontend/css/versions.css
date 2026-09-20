@@ -552,6 +552,17 @@
     border-radius: var(--radius);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
     padding: 4px;
+    transform-origin: top center;
+    animation: folderDropdownOpen 0.18s var(--ease-out-expo, ease-out);
+}
+
+@keyframes folderDropdownOpen {
+    from { opacity: 0; transform: translateY(-6px) scaleY(0.94); }
+    to   { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .folder-dropdown-menu { animation: none; }
 }
 
 .folder-dropdown-item {
