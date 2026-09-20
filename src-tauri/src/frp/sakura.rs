@@ -36,8 +36,10 @@ use super::frp_local::resolve_frpc;
 
 const API_BASE: &str = "https://api.natfrp.com/v4";
 
-/// 拿不到本地 frpc 版本时的兜底（樱花官方分发的 frpc 版本）
-const FALLBACK_FRPC_VER: &str = "0.51.0-sakura-14";
+/// 拿不到本地 frpc 版本时的兜底。
+/// ⚠ 内置 frpc 是 rustunnel 新版（`frpc -v` 报 0.71.0），**只认 TOML**：
+/// 兜底值必须取 ≥0.52 的版本，否则云端会下发 ini，内置 frpc 会直接秒退。
+const FALLBACK_FRPC_VER: &str = "0.71.0";
 
 /// frp 从 0.52 起弃用 ini，内置的新版 frpc 只认 toml
 const INI_LAST_MINOR: u32 = 51;
