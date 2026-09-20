@@ -122,6 +122,7 @@ async function init() {
   setProgress(55, '正在加载界面...');
   await _waitForVueMount();
   _mark('vue');
+  try { if (window.AppLog) window.AppLog.op('启动', '全部页面挂载完成，开始加载数据'); } catch (e) {}
   // Vue 挂载会替换页面 DOM，必须在挂载完成后初始化自定义下拉框，否则实例引用的 DOM 已被替换，点击无响应
   initAllCustomSelects();
   // Vue 挂载完成后再绑定页面内事件（tab 切换、模组搜索等），避免模板覆盖导致事件丢失
