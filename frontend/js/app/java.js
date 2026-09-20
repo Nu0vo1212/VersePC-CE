@@ -19,13 +19,13 @@ function showJavaInstallModal(requiredVersion) {
                     </div>
                     <div class="java-install-text">
                         <p class="java-install-title">未检测到 Java ${requiredVersion}+</p>
-                        <p class="java-install-desc">Minecraft 需要 Java 运行环境才能启动。请前往 Java 管理页面手动安装或配置 Java 路径。</p>
+                        <p class="java-install-desc">Minecraft 需要 Java 运行环境才能启动。请前往「设置 → 启动」页面手动安装或配置 Java 路径。</p>
                     </div>
                 </div>
             </div>
             <div class="modal-footer" id="java-install-footer">
                 <button class="btn btn-secondary" onclick="closeJavaInstallModal()">稍后处理</button>
-                <button class="btn btn-primary" onclick="closeJavaInstallModal();navigateToPage('java')">
+                <button class="btn btn-primary" onclick="closeJavaInstallModal();navigateToPage('settings-launch')">
                     <span>前往 Java 管理</span>
                 </button>
             </div>
