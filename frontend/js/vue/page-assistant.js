@@ -97,7 +97,7 @@ const PageAssistant = {
           <!-- 空态（用 section 而不是 div：与下方 .va-msgs 标签不同，避免 v-if/v-else 原地复用） -->
           <section v-if="!hasMessages && !thinking" class="va-welcome">
             <div class="va-welcome-logo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><path d="M12 7.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5L8.6 11l2.5-.9z"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-assistant"/></svg>
             </div>
             <h3>你好，我是 Verse 助手</h3>
             <p>我住在 VersePC-CE 里，只负责启动器和 Minecraft 的事——而且**能直接动手**：查版本、看模组、读崩溃日志、切页面、开文件夹，你确认后还能帮你装模组、启动游戏。<br>点下面的问题直接开始，或者在下面输入你自己的问题。</p>
@@ -112,10 +112,10 @@ const PageAssistant = {
                  class="va-msg"
                  :class="['va-msg--' + m.role, { 'va-msg--error': m.error, 'va-msg--last': i === currentMessages.length - 1 }]">
               <div class="va-avatar">
-                <svg v-if="m.role === 'assistant'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><path d="M12 7.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5L8.6 11l2.5-.9z"/></svg>
+                <svg v-if="m.role === 'assistant'" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-assistant"/></svg>
                 <span v-else>我</span>
               </div>
-              <div class="va-bubble">
+              <div class="va-bubble" :class="{ 'va-bubble--thinking': isThinkingMsg(m) }">
                 <!-- 工具调用卡片：先执行、后正文，顺序符合直觉 -->
                 <div v-if="m.tools && m.tools.length" class="va-tools">
                   <div v-for="(t, ti) in m.tools" :key="t.id || ti" class="va-tool" :class="'is-' + t.status">
@@ -137,9 +137,14 @@ const PageAssistant = {
                   </div>
                 </div>
 
-                <!-- 助手正文：流式用 p，完成用 div（标签不同 → 分支切换一定重建元素） -->
+                <!-- 助手正文：流式用 p，完成用 div（标签不同 → 分支切换一定重建元素）
+                     思考中 → 动画直接放在气泡内部，不再单独占一行，也不重复头像 -->
                 <template v-if="m.role === 'assistant'">
-                  <p v-if="m.streaming" class="va-plain va-plain--stream">{{ m.content }}<span class="va-caret"></span></p>
+                  <div v-if="isThinkingMsg(m)" class="va-thinking">
+                    <span class="va-thinking-dots"><i></i><i></i><i></i></span>
+                    <span class="va-thinking-text">正在思考</span>
+                  </div>
+                  <p v-else-if="m.streaming" class="va-plain va-plain--stream">{{ m.content }}<span class="va-caret"></span></p>
                   <div v-else-if="m.content" class="va-md" v-html="md(m)"></div>
                   <p v-else-if="!m.tools || !m.tools.length" class="va-plain va-plain--muted">（空回复）</p>
                 </template>
@@ -153,13 +158,8 @@ const PageAssistant = {
               </div>
             </div>
 
-            <!-- 思考中 -->
-            <div v-if="thinking" class="va-msg va-msg--assistant">
-              <div class="va-avatar">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><path d="M12 7.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5L8.6 11l2.5-.9z"/></svg>
-              </div>
-              <div class="va-bubble va-typing"><i></i><i></i><i></i></div>
-            </div>
+            <!-- 思考态不再单起一行：动画已并入当前这条 assistant 气泡内部，
+                 避免「一个图标 + 一个气泡」的重复出现 -->
           </div>
         </div>
 
@@ -291,6 +291,8 @@ const PageAssistant = {
       sf: { provider: 'openai', apiKey: '', model: '', endpoint: '', apiFormat: 'openai' },
       _initialized: false,
       _abort: null,
+      _liveMsg: null,
+      _runSeq: 0,
       _streamSeq: 0,
       _streamToken: 0,
       _streamMsg: null,
@@ -632,6 +634,8 @@ const PageAssistant = {
       const VA = window.VerseAssistant;
       const text = this.input.trim();
       if (!text || this.busy || !VA) return;
+      // 本次发送的流水号：点「停止」或又发了一条，都会让这个号失效
+      const runToken = ++this._runSeq;
 
       this.input = '';
       this.autoGrow();
@@ -670,6 +674,7 @@ const PageAssistant = {
 
       // 建一条空的 assistant 消息，工具卡片与正文都挂在它上面
       const msg = this.pushMsg(convo, { role: 'assistant', content: '', streaming: true, tools: [] });
+      this._liveMsg = msg;
       await this.$nextTick();
 
       const messages = VA.buildMessages(convo.messages.filter((m) => !m.error && m.content));
@@ -683,7 +688,12 @@ const PageAssistant = {
         res = { ok: false, error: String((e && e.message) || e) };
       }
 
+      // 这次发送已经被「停止」或新的发送取代 → 迟到的结果直接丢弃，
+      // 否则会把新一轮的「正在思考」状态一起清掉
+      if (this._runSeq !== runToken) return;
+
       if (this._abort === signal) this._abort = null;
+      if (this._liveMsg === msg) this._liveMsg = null;
       this.thinking = false;
 
       if (res.aborted) {
@@ -777,6 +787,15 @@ const PageAssistant = {
       return !!(m && m.tools && m.tools.some((t) => t.status === 'await'));
     },
 
+    /**
+     * 该条消息是否正处于「思考中」：在流式等待模型首个 token 之前，
+     * 正文还是空的 —— 此时把思考动画放进它自己的气泡里，
+     * 这样整行只有「一个头像 + 一个气泡」，不会再额外冒出一行。
+     */
+    isThinkingMsg(m) {
+      return !!(m && m.role === 'assistant' && m.streaming && !m.content);
+    },
+
     runPendingTool(m, tool) {
       const w = this._toolWaiters.get(tool.id);
       if (!w) {
@@ -824,12 +843,33 @@ const PageAssistant = {
     },
 
     stop() {
+      // 作废本次发送流水号：迟到的 AI 回复一律丢弃，不会污染后面的对话
+      this._runSeq++;
+      // ① 打上中止标记：Agent 循环每一轮开始前都会检查，后续轮次不会再发请求
       if (this._abort) {
         this._abort.aborted = true;
         this._abort = null;
       }
       this.thinking = false;
-      // 还没确认的工具直接作废，避免流停住了却永远等不到 resolve
+
+      // ② 立刻给「正在进行的这条助手消息」收尾。
+      //    否则它一直停留在 streaming=true —— 气泡里的「正在思考」动画会一直转到
+      //    后台那次请求超时（最长 90s）为止，按钮也卡在「停止」态，用户会觉得停不下来。
+      const live = this._liveMsg;
+      this._liveMsg = null;
+      if (live) {
+        this._streamToken = 0;          // 打断逐字上屏
+        live.streaming = false;
+        // 既没正文也没工具卡片 → 这条空消息没有存在意义，直接移除
+        const convo = this.current;
+        if (!live.content && (!live.tools || !live.tools.length) && convo) {
+          const idx = convo.messages.indexOf(live);
+          if (idx >= 0) convo.messages.splice(idx, 1);
+        }
+        this.persist();
+      }
+
+      // ③ 还没确认的工具直接作废，避免流停住了却永远等不到 resolve
       if (this._toolWaiters) {
         this._toolWaiters.forEach((w) => {
           try {
