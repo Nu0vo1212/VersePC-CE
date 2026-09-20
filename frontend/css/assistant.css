@@ -1000,24 +1000,45 @@
     border-color: transparent;
 }
 
-/* 思考中 */
-.va-typing {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 8px 2px;
+/* 思考中 —— 动画收进气泡内部，做成一条可见的气泡栏（图标 + 气泡，各一个） */
+.va-msg--assistant .va-bubble--thinking {
+    flex: 0 1 auto;
 }
 
-.va-typing i {
+.va-thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    width: fit-content;
+    padding: 9px 14px;
+    border-radius: 14px 14px 14px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+
+.va-thinking-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.va-thinking-dots i {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--text-muted);
+    background: rgb(var(--accent-rgb));
     animation: vaTyping 1.2s ease-in-out infinite;
 }
 
-.va-typing i:nth-child(2) { animation-delay: 0.16s; }
-.va-typing i:nth-child(3) { animation-delay: 0.32s; }
+.va-thinking-dots i:nth-child(2) { animation-delay: 0.16s; }
+.va-thinking-dots i:nth-child(3) { animation-delay: 0.32s; }
+
+.va-thinking-text {
+    font-size: 12.5px;
+    line-height: 1;
+    color: var(--text-secondary);
+    animation: vaThinkPulse 1.6s ease-in-out infinite;
+}
 
 /* ==========================================================
    底部输入区
@@ -1169,6 +1190,11 @@
     30%           { opacity: 1;   transform: translateY(-3px); }
 }
 
+@keyframes vaThinkPulse {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+}
+
 @keyframes vaCaret {
     0%, 50%   { opacity: 1; }
     51%, 100% { opacity: 0; }
@@ -1178,6 +1204,8 @@
     .va-msg,
     .va-welcome { animation: none; }
     .va-typing i { animation: none; opacity: 0.6; }
+    .va-thinking-dots i { animation: none; opacity: 0.7; }
+    .va-thinking-text { animation: none; }
     .va-caret { animation: none; }
 }
 
