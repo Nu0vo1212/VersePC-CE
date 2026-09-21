@@ -8,6 +8,7 @@
  */
 const PageLanLolia = {
   name: 'PageLanLolia',
+  mixins: [window.VerseFrp.uptimeMixin],
   data() {
     return {
       auth: { loggedIn: false, username: '' },
@@ -67,7 +68,7 @@ const PageLanLolia = {
         if (results[1] && results[1].list) self.tunnels = results[1].list;
         if (results[2] && results[2].nodes) self.nodes = results[2].nodes.slice().sort(function (a, b) { return a.id - b.id; });
         if (results[3]) self.stats = results[3];
-        if (results[4]) self.runStatus = results[4];
+        if (results[4]) { self.runStatus = results[4]; self.syncUptime(results[4]); }
       } finally { this.loading = false; }
     },
     async login() {
@@ -173,6 +174,8 @@ const PageLanLolia = {
         self.logs = self.logs.concat([line]).slice(-500);
       }
     });
+    // 运行计时：本地每秒累加 + 每 5 秒与后端对表
+    this.startUptimeTicker('lolia_run_status');
     const boot = async function () {
       await self.loadAuth();
       if (self.auth.loggedIn) await self.refresh();
@@ -180,7 +183,7 @@ const PageLanLolia = {
     boot();
   },
   beforeUnmount() {
-    this.stopPoll(); this.stopLogTimer();
+    this.stopPoll(); this.stopLogTimer(); this.stopUptimeTicker();
     if (this._unlisten) this._unlisten();
   },
   template: `
@@ -281,7 +284,7 @@ const PageLanLolia = {
                     <div class="frp-tunnel-head">
                       <span class="frp-badge frp-badge--type">{{ t.type }}</span>
                       <span class="frp-tunnel-name">{{ t.remark || t.name }}</span>
-                      <span v-if="runMap[t.name] && runMap[t.name].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(runMap[t.name].uptimeSecs) }}</span>
+                      <span v-if="runMap[t.name] && runMap[t.name].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(uptimeOf(t.name)) }}</span>
                       <span v-else class="frp-badge">{{ tStatus(t.status) }}</span>
                     </div>
                     <div class="frp-tunnel-meta">
