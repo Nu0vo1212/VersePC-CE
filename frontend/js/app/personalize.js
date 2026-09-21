@@ -223,11 +223,86 @@ function applyPanoramaFollowValue(enabled) {
 }
 
 // ============== 视觉效果：值参数核心函数 ==============
-// 「毛玻璃效果」「液态玻璃效果」两个开关已下线：
-// 界面统一为不透明纯色（见 components.css 顶部的「扁平化」段落）。
-// 原先这里有一对 applyGlassEffectValue() / applyLiquidGlassEffectValue()，
-// 它们往 <html> 上挂 data-no-glass / data-liquid-glass 属性来切换玻璃，
-// 现在两个属性都不再存在，函数与对应的 store 键一并移除。
+// 四个互斥选项：none（扁平默认）/ frosted 毛玻璃 / liquid 液态玻璃 / acrylic 亚克力
+// 开关落在 <html data-glass="..."> 上，具体材质见 css/glass-effect.css。
+// ⚠️ 只改这一个属性：不需要重算主题变量，切换即时生效且不触碰 --bg-* 系列。
+// ⚠️ 材质只在深色主题（黑 / 自定义深色）下生效：浅色底上玻璃没有层次，只剩一层灰膜。
+//    用户在浅色下做的选择会被记住（存 store），切回深色自动恢复，不用重选。
+
+const GLASS_EFFECT_MODES = ['none', 'frosted', 'liquid', 'acrylic'];
+
+/** 用户上一次选择的材质（store 之外再记一份，供主题切换时重算 DOM 用） */
+let _glassEffectPref = 'none';
+/** 上一次的"被浅色禁用"状态，只在状态翻转时提示一次，避免反复弹 toast */
+let _glassBlockedPrev = false;
+
+/** 当前界面是否处于浅色（白色主题，或自定义主题的浅色模式） */
+function isLightThemeActive() {
+  const de = document.documentElement;
+  if (de.classList.contains('light-theme')) return true;
+  const theme = de.getAttribute('data-theme') || '';
+  if (theme === 'light') return true;
+  if (theme === 'custom') return de.getAttribute('data-custom-theme-mode') === 'light';
+  return false;
+}
+
+/** 材质在当前主题下是否不可用（只有浅色会禁用；'none' 永远可用） */
+function isGlassEffectBlocked(mode) {
+  return !!mode && mode !== 'none' && isLightThemeActive();
+}
+
+/** 只写 DOM：被禁用时摘掉 data-glass，偏好值不动 */
+function renderGlassEffect(mode) {
+  const root = document.documentElement;
+  if (mode && mode !== 'none' && !isGlassEffectBlocked(mode)) root.setAttribute('data-glass', mode);
+  else root.removeAttribute('data-glass');
+}
+
+/**
+ * 应用视觉效果（副作用 + 持久化）
+ * @param {string} mode none | frosted | liquid | acrylic
+ * @param {{silent?: boolean}} [opts] silent=true 时不弹提示（启动恢复用）
+ */
+function applyGlassEffectByName(mode, opts) {
+  const m = GLASS_EFFECT_MODES.indexOf(mode) >= 0 ? mode : 'none';
+  const silent = !!(opts && opts.silent);
+  _glassEffectPref = m;
+
+  renderGlassEffect(m);
+  window.electronAPI?.store?.set('versepc_glass_effect', m).catch(() => {});
+
+  const blocked = isGlassEffectBlocked(m);
+  const st = getPersonalizeState();
+  if (st) {
+    st.glassEffect = m;
+    st.glassBlocked = blocked;
+  }
+  if (!silent && blocked && !_glassBlockedPrev && typeof showToast === 'function') {
+    showToast('视觉效果仅在深色主题下可用，已保留你的选择', 'warning');
+  }
+  _glassBlockedPrev = blocked;
+  return m;
+}
+
+/**
+ * 主题切换后重新校验材质（偏好保留在 store，切回深色自动恢复）
+ * @param {{silent?: boolean}} [opts]
+ */
+function syncGlassEffectWithTheme(opts) {
+  const silent = !!(opts && opts.silent);
+  const st = getPersonalizeState();
+  const mode = (st && st.glassEffect) || _glassEffectPref || 'none';
+
+  renderGlassEffect(mode);
+
+  const blocked = isGlassEffectBlocked(mode);
+  if (st) st.glassBlocked = blocked;
+  if (!silent && blocked && !_glassBlockedPrev && typeof showToast === 'function') {
+    showToast('当前为浅色主题，视觉效果已暂时关闭（切回深色自动恢复）', 'info');
+  }
+  _glassBlockedPrev = blocked;
+  return !blocked;
+}
 
 // ============== 动画速度：值参数核心函数 ==============
 
@@ -493,7 +568,7 @@ async function loadWallpaperSubState() {
   const st = getPersonalizeState();
   if (!st) return;
   try {
-    const [opacity, blur, fit, panoTheme, panoSpeed, panoFollow, customImage, customVideo, animSpeed] = await Promise.all([
+    const [opacity, blur, fit, panoTheme, panoSpeed, panoFollow, customImage, customVideo, animSpeed, glassEffect] = await Promise.all([
       window.electronAPI?.store?.get('versepc_wallpaper_opacity'),
       window.electronAPI?.store?.get('versepc_wallpaper_blur'),
       window.electronAPI?.store?.get('versepc_wallpaper_fit'),
@@ -503,6 +578,7 @@ async function loadWallpaperSubState() {
       window.electronAPI?.store?.get('versepc_custom_image'),
       window.electronAPI?.store?.get('versepc_custom_video'),
       window.electronAPI?.store?.get('versepc_anim_speed'),
+      window.electronAPI?.store?.get('versepc_glass_effect'),
     ]);
     if (opacity != null) st.opacity = Number(opacity);
     if (blur != null) st.blur = Number(blur);
@@ -516,6 +592,9 @@ async function loadWallpaperSubState() {
       st.animSpeed = Number(animSpeed);
       if (typeof applyAnimationSpeed === 'function') applyAnimationSpeed(st.animSpeed);
     }
+    // 视觉效果：启动时恢复（旧版的布尔键 versepc_liquid_glass 已废弃，不再兼容）
+    // silent：恢复动作不弹提示，浅色主题下只静默不生效，偏好值保留
+    if (typeof applyGlassEffectByName === 'function') applyGlassEffectByName(glassEffect || 'none', { silent: true });
   } catch (e) {
     console.warn('[Settings] Load wallpaper sub state error:', e);
   }
@@ -553,7 +632,7 @@ async function loadPersonalizeStateIntoStore() {
   if (wpName === 'starry') wpName = 'panorama';
   st.wallpaper = wpName;
 
-  // ── 玻璃效果已下线：不再读取 versepc_glass_effect / versepc_liquid_glass ──
+  // ── 视觉效果（毛玻璃 / 液态玻璃 / 亚克力）由 loadWallpaperSubState 统一恢复 ──
 
   if (customColor) st.customColor = customColor;
   if (customLight !== null && customLight !== undefined) {
@@ -613,11 +692,13 @@ async function resetPersonalizeSettings() {
     st.panoramaFollow = false;
     st.customFileName = '未选择';
     st.animSpeed = 1;
+    st.glassEffect = 'none';
   }
 
   await applyThemeByName('light');
   await applyWallpaperByName('none');
   if (typeof applyAnimationSpeed === 'function') applyAnimationSpeed(1);
+  if (typeof applyGlassEffectByName === 'function') applyGlassEffectByName('none');
 
   if (typeof clearCustomThemeVars === 'function') clearCustomThemeVars();
   if (typeof syncCustomThemeColorUI === 'function') syncCustomThemeColorUI('#4c8dff');
@@ -639,8 +720,8 @@ async function resetPersonalizeSettings() {
     await window.electronAPI.store.delete('versepc_custom_video');
     await window.electronAPI.store.set('versepc_panorama_theme', 'overworld');
     await window.electronAPI.store.set('versepc_anim_speed', 1);
-    // 已下线的玻璃效果开关：顺手清掉遗留的 store 键
-    await window.electronAPI.store.delete('versepc_glass_effect');
+    await window.electronAPI.store.set('versepc_glass_effect', 'none');
+    // 旧版遗留的布尔键（毛玻璃开关 / 液态玻璃开关）已废弃，重置时清掉
     await window.electronAPI.store.delete('versepc_liquid_glass');
     _updateCustomImagePreview(null);
     const nameEl = document.getElementById('custom-wallpaper-file-name');
@@ -661,3 +742,23 @@ async function loadPersonalizeSettings() {
   await applyThemeByName(st.theme);
   await applyWallpaperByName(st.wallpaper);
 }
+
+// ============== 启动即恢复视觉效果 ==============
+// 不能只在个性化页/设置页初始化时恢复：用户重启启动器后如果没进过设置页，
+// 玻璃效果就会丢。这里和 animation-speed.js 的 boot 一个套路 —— 页面加载后
+// 自己从 store 读一次并挂到 <html> 上（幂等，重复执行无副作用）。
+(function bootGlassEffect() {
+  let tries = 0;
+  function run() {
+    const api = window.electronAPI;
+    if (!api || !api.store || !api.store.get) {
+      if (++tries < 25) setTimeout(run, 200); // store 桥还没挂上，稍后再试
+      return;
+    }
+    api.store.get('versepc_glass_effect').then(function (v) {
+      if (typeof applyGlassEffectByName === 'function') applyGlassEffectByName(v || 'none');
+    }).catch(function () {});
+  }
+  if (document.readyState === 'complete') setTimeout(run, 300);
+  else window.addEventListener('load', function () { setTimeout(run, 300); });
+})();
