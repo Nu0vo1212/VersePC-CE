@@ -147,6 +147,91 @@
     return true;
   }
 
+  /* ============ 运行计时（三个平台共用） ============ */
+
+  /**
+   * 运行计时 mixin。
+   *
+   * 背景：后端 run_status 只在主动刷新时返回一次，界面照着它渲染就会出现
+   * 「启动后一直显示 1 秒、再也不动」的假象。这里改成：
+   *   · 用后端给的 uptimeSecs 反推「起算时刻」，之后由前端每秒自己累加；
+   *   · 每 5 秒再和后端对一次，隧道真挂了 / 被自动重启都能同步过来。
+   *
+   * 用法：组件加 `mixins: [window.VerseFrp.uptimeMixin]`，
+   *   refresh() 里 this.syncUptime(runStatus)，
+   *   mounted() 里 this.startUptimeTicker('<前缀>_run_status')，
+   *   beforeUnmount() 里 this.stopUptimeTicker()，
+   *   模板里用 F.fmtUptime(uptimeOf(t.id))。
+   */
+  var uptimeMixin = {
+    data: function () {
+      return {
+        _uptimeTimer: 0,   // 1s 本地累加
+        _uptimeSync: 0,    // 5s 与后端对表
+        uptimeSecs: {},    // { 隧道key: 秒 } 每秒替换 → 触发重渲染
+        _upBase: {}        // { 隧道key: { t: 起算时刻ms, restarts } }
+      };
+    },
+    methods: {
+      /** 用后端返回的 runStatus 校正本地起算时刻 */
+      syncUptime: function (list) {
+        const base = this._upBase || {};
+        const now = Date.now();
+        const alive = {};
+        (list || []).forEach(function (r) {
+          if (!r || !r.running) return;
+          const k = String(r.tunnel);
+          const restarts = Number(r.restarts) || 0;
+          alive[k] = true;
+          const old = base[k];
+          // 起算时刻只在第一次见到、或后端记的重启次数变了（说明进程换过）时重算
+          if (!old || old.restarts !== restarts) {
+            base[k] = { t: now - (Math.floor(Number(r.uptimeSecs) || 0) * 1000), restarts: restarts };
+          }
+        });
+        Object.keys(base).forEach(function (k) { if (!alive[k]) delete base[k]; });
+        this._upBase = base;
+        this.tickUptime();
+      },
+      /** 每秒重算一次显示用的秒数（替换整个对象以触发渲染） */
+      tickUptime: function () {
+        const base = this._upBase || {};
+        const prev = this.uptimeSecs || {};
+        const keys = Object.keys(base);
+        // 没有运行中隧道时不制造无意义的重渲染
+        if (!keys.length && !Object.keys(prev).length) return;
+        const now = Date.now();
+        const out = {};
+        keys.forEach(function (k) {
+          out[k] = Math.max(0, Math.floor((now - base[k].t) / 1000));
+        });
+        this.uptimeSecs = out;
+      },
+      /** 隧道当前已运行秒数（未运行返回 0） */
+      uptimeOf: function (key) {
+        const m = this.uptimeSecs || {};
+        return m[String(key)] || 0;
+      },
+      startUptimeTicker: function (statusCmd) {
+        const self = this;
+        this.stopUptimeTicker();
+        this.tickUptime();
+        this._uptimeTimer = setInterval(function () { self.tickUptime(); }, 1000);
+        if (!statusCmd) return;
+        this._uptimeSync = setInterval(async function () {
+          try {
+            const r = await frpInvoke(statusCmd);
+            if (r) { self.runStatus = r; self.syncUptime(r); }
+          } catch (e) { /* 单次失败忽略，下次再试 */ }
+        }, 5000);
+      },
+      stopUptimeTicker: function () {
+        if (this._uptimeTimer) { clearInterval(this._uptimeTimer); this._uptimeTimer = 0; }
+        if (this._uptimeSync) { clearInterval(this._uptimeSync); this._uptimeSync = 0; }
+      }
+    }
+  };
+
   /* ============ 展示格式化（三个平台各不相同，别混用） ============ */
 
   function fmtBytes(n) {
@@ -195,6 +280,7 @@
     invoke: frpInvoke,
     guard: frpGuard,
     onFrpLog: onFrpLog,
+    uptimeMixin: uptimeMixin,
     startOpenfrpFrpcDownload: startOpenfrpFrpcDownload,
     fmtBytes: fmtBytes,
     fmtUptime: fmtUptime,
