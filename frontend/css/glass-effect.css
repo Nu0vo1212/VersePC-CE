@@ -1,0 +1,745 @@
+/* ============================================================================
+ * glass-effect.css — 视觉效果：毛玻璃 / 液态玻璃 / 亚克力
+ * ----------------------------------------------------------------------------
+ * 开关方式：<html data-glass="frosted" | "liquid" | "acrylic">
+ *   - 没有该属性（或 data-glass="none"）= 扁平实色底，默认观感，零性能开销
+ *   - frosted 毛玻璃：均匀磨砂，中性、克制，靠模糊与细高光边定义形状
+ *   - liquid  液态玻璃：苹果 Liquid Glass 观感 —— 极淡 tint + 超大模糊 +
+ *             左上角镜面高光 + 一圈不均匀的"厚度"亮边（仅它还接管按钮）
+ *   - acrylic 亚克力：Fluent 材质 —— 更实的 tint + 模糊 + 细腻磨砂噪点
+ *
+ * 三条贯穿全局的设计约束（改这个文件前务必先读）：
+ *   1) tint 一律用 color-mix() 从 --bg-glass / --bg-card-glass 现场调透明，
+ *      所以黑/白/自定义主题（它们改的都是这两个变量）能自动跟随。
+ *      自定义主题把变量写在 <html> inline style 上，这里不能反向覆盖变量，
+ *      只能在使用处做 color-mix —— 这是适配自定义主题的关键。
+ *   2) 浅色基底（--bg-card-glass 是 #fafafa，几乎纯白）绝不能靠"加白"制造
+ *      层次：白上加白等于没有。浅色下必须反过来做 ——
+ *      tint 压淡（让模糊后的背景透出来）+ 柔外阴影（把面板托起来）+
+ *      一圈被淡灰衬出的白色高光边。浅色块全部遵守这条。
+ *   3) 深色块的选择器必须写 :not([data-custom-theme-mode="light"])，
+ *      否则浅色自定义主题会同时命中浅色块和深色块（同优先级，后写的赢）。
+ * ========================================================================== */
+
+/* ============================================================================
+ * 1. 毛玻璃 frosted —— 均匀磨砂，中性克制
+ * ========================================================================== */
+html[data-glass="frosted"] {
+    --ge-surface-card: linear-gradient(
+        color-mix(in srgb, var(--bg-card-glass) 62%, transparent),
+        color-mix(in srgb, var(--bg-card-glass) 62%, transparent)
+    );
+    --ge-surface-plain: linear-gradient(
+        color-mix(in srgb, var(--bg-glass) 68%, transparent),
+        color-mix(in srgb, var(--bg-glass) 68%, transparent)
+    );
+    --ge-filter: blur(24px) saturate(180%);
+    --ge-edge: rgba(255, 255, 255, 0.14);
+    /* 顶部 1px 高光 + 底部回光：磨砂玻璃的边缘厚度比液态薄得多，点到为止 */
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ============================================================================
+ * 2. 液态玻璃 liquid —— 苹果 Liquid Glass
+ * 视觉签名（按重要性排序）：
+ *   ① 超大模糊 + 高饱和：blur 是主角，tint 只占 15~30%
+ *   ② 左上角镜面高光 specular：一块柔和的椭圆亮斑，暗示"曲面"
+ *   ③ 不均匀的 rim：顶/左亮、底/右暗，制造玻璃的"厚度"
+ *   ④ 柔外阴影：把玻璃从背景里托起来（浅色下这条尤其关键）
+ * ========================================================================== */
+html[data-glass="liquid"] {
+    --ge-filter: blur(32px) saturate(190%);
+    --ge-edge: rgba(255, 255, 255, 0.26);
+
+    /* 卡片：specular 在最上，tint 垫底 */
+    --ge-surface-card:
+        radial-gradient(120% 130% at 18% -18%, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0.08) 34%, transparent 58%),
+        radial-gradient(90% 80% at 88% 108%, rgba(255, 255, 255, 0.10) 0%, transparent 46%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-card-glass) 34%, transparent) 0%,
+            color-mix(in srgb, var(--bg-card-glass) 18%, transparent) 46%,
+            color-mix(in srgb, var(--bg-card-glass) 28%, transparent) 100%
+        );
+    --ge-surface-plain:
+        radial-gradient(120% 130% at 18% -18%, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.07) 34%, transparent 58%),
+        radial-gradient(90% 80% at 88% 108%, rgba(255, 255, 255, 0.09) 0%, transparent 46%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-glass) 40%, transparent) 0%,
+            color-mix(in srgb, var(--bg-glass) 24%, transparent) 46%,
+            color-mix(in srgb, var(--bg-glass) 34%, transparent) 100%
+        );
+
+    /* rim：整圈 hairline → 顶部强高光 → 底部回光 → 左右不对称亮边 → 外阴影
+       这四层 inset 叠加出来就是苹果那种"有厚度、有折射"的边 */
+    --ge-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+        inset 0 1px 1px rgba(255, 255, 255, 0.55),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.12),
+        inset 1px 0 1px rgba(255, 255, 255, 0.20),
+        inset -1px 0 1px rgba(255, 255, 255, 0.10),
+        0 10px 30px rgba(0, 0, 0, 0.26),
+        0 2px 8px rgba(0, 0, 0, 0.16);
+}
+
+/* ============================================================================
+ * 3. 亚克力 acrylic —— Fluent 材质，颗粒感是主角
+ * ========================================================================== */
+html[data-glass="acrylic"] {
+    --ge-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.38'/%3E%3C/svg%3E");
+    --ge-surface-card: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-card-glass) 74%, transparent),
+            color-mix(in srgb, var(--bg-card-glass) 74%, transparent)
+        );
+    --ge-surface-plain: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-glass) 78%, transparent),
+            color-mix(in srgb, var(--bg-glass) 78%, transparent)
+        );
+    /* soft-light 让噪点与 tint 相融，而不是硬盖在表面 —— Fluent 的细腻感来源 */
+    --ge-blend: soft-light;
+    /* 亚克力不追求"通透发亮"：模糊够厚、饱和度压低，颗粒感才是识别点 */
+    --ge-filter: blur(30px) saturate(130%);
+    --ge-edge: rgba(255, 255, 255, 0.12);
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================================================
+ * 4. 浅色基底 —— 白底上做玻璃的正确姿势
+ * 反直觉但必须这样：tint 比深色更淡（否则白上加白 = 没有），
+ * 层次全靠「柔外阴影 + 被淡灰衬出的白高光边」。
+ * ========================================================================== */
+
+/* ============================================================================
+ * 4. 浅色基底 —— 这一段是「浅色看不见效果」的解药，改之前先读懂这段
+ * ----------------------------------------------------------------------------
+ * 先看两组事实（见 themes.css）：
+ *   浅色：--bg-primary #ffffff（页面背景是纯白）, --bg-glass #f5f5f7, --bg-card-glass #fafafa
+ *   深色：--bg-primary 近黑,                      --bg-glass #0a0a0a, --bg-card-glass #181818
+ * 深色下用 --bg-card-glass 是对的（卡片比背景亮 = 有层级）。
+ * 浅色下用 --bg-card-glass(#fafafa) 是错的 —— 它是"99% 的白"，铺在纯白背景上
+ * 等于白上加白，玻璃、模糊、高光全部消失，这就是"浅色主题毛都看不见"的根因。
+ * 所以浅色块一律改用 --bg-glass(#f5f5f7)：让卡片比页面背景「暗一档」，
+ * 层级立刻出来，再叠左上角高光 / 噪点 / 柔阴影，三种材质才分得开。
+ * ========================================================================== */
+
+/* 浅色 · 毛玻璃：均匀雾面，比背景暗一档，靠柔阴影定义边界 */
+html[data-theme="light"][data-glass="frosted"],
+html[data-theme="custom"][data-custom-theme-mode="light"][data-glass="frosted"] {
+    --ge-surface-card: linear-gradient(
+        color-mix(in srgb, var(--bg-glass) 90%, transparent),
+        color-mix(in srgb, var(--bg-glass) 90%, transparent)
+    );
+    --ge-surface-plain: linear-gradient(
+        color-mix(in srgb, var(--bg-glass) 94%, transparent),
+        color-mix(in srgb, var(--bg-glass) 94%, transparent)
+    );
+    --ge-filter: blur(24px) saturate(160%) brightness(1.01);
+    --ge-edge: rgba(0, 0, 0, 0.12);
+    /* 浅色下阴影要"看得见但不脏"：极细的贴地影 + 一层柔扩散，
+       不要写 0 0 0 Npx rgba(0,0,0,x) 那种硬描边，在白底上它就是一圈脏灰 */
+    /* 浅色下外阴影必须小 —— 0 6px 16px 那档会在卡片下方拖出一条又长又灰的影子，
+       在白底上非常违和。只留 1px 的贴地影，边界交给 tint 色差和淡灰描边。 */
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 1),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+                 0 1px 2px rgba(0, 0, 0, 0.05),
+                 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+/* 浅色 · 液态玻璃：比毛玻璃「再暗半档 + 左上角一块纯白高光」。
+ * 白底上做不出透明度层次，苹果的浅色玻璃靠的也正是「高光 + 阴影 + 内发光」，
+ * 所以这里把 specular 提到近乎纯白（在白雾面上就是一块看得见的反光），
+ * 再用三层柔投影把玻璃片"托"起来。 */
+html[data-theme="light"][data-glass="liquid"],
+html[data-theme="custom"][data-custom-theme-mode="light"][data-glass="liquid"] {
+    --ge-surface-card:
+        radial-gradient(78% 130% at 8% -34%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.55) 26%, rgba(255, 255, 255, 0.1) 48%, transparent 62%),
+        radial-gradient(95% 85% at 92% 112%, rgba(255, 255, 255, 0.62) 0%, transparent 50%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-glass) 86%, transparent) 0%,
+            color-mix(in srgb, var(--bg-glass) 72%, transparent) 46%,
+            color-mix(in srgb, var(--bg-glass) 82%, transparent) 100%
+        );
+    --ge-surface-plain:
+        radial-gradient(78% 130% at 8% -34%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.5) 26%, rgba(255, 255, 255, 0.08) 48%, transparent 62%),
+        radial-gradient(95% 85% at 92% 112%, rgba(255, 255, 255, 0.56) 0%, transparent 50%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-glass) 90%, transparent) 0%,
+            color-mix(in srgb, var(--bg-glass) 78%, transparent) 46%,
+            color-mix(in srgb, var(--bg-glass) 86%, transparent) 100%
+        );
+    --ge-filter: blur(30px) saturate(170%) brightness(1.02);
+    --ge-edge: rgba(0, 0, 0, 0.13);
+    /* 不要左右向的 inset（会在竖直边涂出两道白线），也不要硬灰描边 */
+    --ge-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 1),
+        inset 0 1px 1px rgba(255, 255, 255, 1),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.6),
+        0 1px 2px rgba(0, 0, 0, 0.06),
+        0 2px 6px rgba(0, 0, 0, 0.05);
+    --ge-btn-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+        0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* 浅色 · 亚克力：最实的一种，颗粒是识别点，浅底上噪点要压得住才看得见 */
+html[data-theme="light"][data-glass="acrylic"],
+html[data-theme="custom"][data-custom-theme-mode="light"][data-glass="acrylic"] {
+    --ge-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+    --ge-surface-card: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-glass) 92%, transparent),
+            color-mix(in srgb, var(--bg-glass) 92%, transparent)
+        );
+    --ge-surface-plain: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-glass) 95%, transparent),
+            color-mix(in srgb, var(--bg-glass) 95%, transparent)
+        );
+    --ge-filter: blur(28px) saturate(130%) brightness(1.01);
+    --ge-edge: rgba(0, 0, 0, 0.12);
+    /* 浅色下外阴影必须小 —— 0 6px 16px 那档会在卡片下方拖出一条又长又灰的影子，
+       在白底上非常违和。只留 1px 的贴地影，边界交给 tint 色差和淡灰描边。 */
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 1),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.5),
+                 0 1px 2px rgba(0, 0, 0, 0.05),
+                 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+/* ============================================================================
+ * 5. 深色基底 —— tint 可以压到很低，靠 brightness 把背景压暗来保住文字对比
+ * ========================================================================== */
+
+/* 深色 · 毛玻璃 */
+html[data-theme="dark"][data-glass="frosted"],
+html[data-theme="custom"]:not([data-custom-theme-mode="light"])[data-glass="frosted"] {
+    --ge-surface-card: linear-gradient(
+        color-mix(in srgb, var(--bg-card-glass) 48%, transparent),
+        color-mix(in srgb, var(--bg-card-glass) 48%, transparent)
+    );
+    --ge-surface-plain: linear-gradient(
+        color-mix(in srgb, var(--bg-glass) 56%, transparent),
+        color-mix(in srgb, var(--bg-glass) 56%, transparent)
+    );
+    /* 深色下必须先压暗背景再叠 tint：只靠不透明黑会让面板死黑、纹理全丢 */
+    --ge-filter: blur(24px) saturate(170%) brightness(0.88);
+    --ge-edge: rgba(255, 255, 255, 0.11);
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+                 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+/* 深色 · 液态玻璃：tint 更低（暗底对比度高，可以透到 0.18），高光拉满 */
+html[data-theme="dark"][data-glass="liquid"],
+html[data-theme="custom"]:not([data-custom-theme-mode="light"])[data-glass="liquid"] {
+    --ge-surface-card:
+        radial-gradient(125% 135% at 16% -20%, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.07) 34%, transparent 60%),
+        radial-gradient(90% 80% at 88% 108%, rgba(255, 255, 255, 0.09) 0%, transparent 46%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-card-glass) 38%, transparent) 0%,
+            color-mix(in srgb, var(--bg-card-glass) 22%, transparent) 46%,
+            color-mix(in srgb, var(--bg-card-glass) 32%, transparent) 100%
+        );
+    --ge-surface-plain:
+        radial-gradient(125% 135% at 16% -20%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 34%, transparent 60%),
+        radial-gradient(90% 80% at 88% 108%, rgba(255, 255, 255, 0.08) 0%, transparent 46%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-glass) 44%, transparent) 0%,
+            color-mix(in srgb, var(--bg-glass) 28%, transparent) 46%,
+            color-mix(in srgb, var(--bg-glass) 38%, transparent) 100%
+        );
+    --ge-filter: blur(32px) saturate(200%) brightness(0.9);
+    --ge-edge: rgba(255, 255, 255, 0.16);
+    --ge-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.15),
+        inset 0 1px 1px rgba(255, 255, 255, 0.4),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.08),
+        0 2px 6px rgba(0, 0, 0, 0.22),
+        0 8px 22px rgba(0, 0, 0, 0.26);
+}
+
+/* 深色 · 亚克力 */
+html[data-theme="dark"][data-glass="acrylic"],
+html[data-theme="custom"]:not([data-custom-theme-mode="light"])[data-glass="acrylic"] {
+    --ge-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E");
+    --ge-surface-card: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-card-glass) 58%, transparent),
+            color-mix(in srgb, var(--bg-card-glass) 58%, transparent)
+        );
+    --ge-surface-plain: var(--ge-noise),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-glass) 64%, transparent),
+            color-mix(in srgb, var(--bg-glass) 64%, transparent)
+        );
+    --ge-filter: blur(30px) saturate(130%) brightness(0.88);
+    --ge-edge: rgba(255, 255, 255, 0.1);
+    --ge-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14),
+                 inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+                 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+/* ============================================================================
+ * 6. 应用：卡片类表面（原本用 --bg-card-glass 的元素）
+ * ========================================================================== */
+html[data-glass]:not([data-glass="none"]) .card,
+html[data-glass]:not([data-glass="none"]) .stat-card,
+html[data-glass]:not([data-glass="none"]) .home-hero,
+html[data-glass]:not([data-glass="none"]) .home-running-card,
+html[data-glass]:not([data-glass="none"]) .world-item,
+html[data-glass]:not([data-glass="none"]) .ds-item,
+html[data-glass]:not([data-glass="none"]) .loader-card,
+html[data-glass]:not([data-glass="none"]) .lver-item,
+html[data-glass]:not([data-glass="none"]) .md-dep-item,
+html[data-glass]:not([data-glass="none"]) .mdv-group,
+html[data-glass]:not([data-glass="none"]) .vset-sidebar,
+html[data-glass]:not([data-glass="none"]) .vset-section,
+html[data-glass]:not([data-glass="none"]) .download-item,
+html[data-glass]:not([data-glass="none"]) .dl-task,
+html[data-glass]:not([data-glass="none"]) .md-sidebar-section,
+html[data-glass]:not([data-glass="none"]) .md-gallery-item,
+html[data-glass]:not([data-glass="none"]) .modmgr-item,
+html[data-glass]:not([data-glass="none"]) .mod-item,
+html[data-glass]:not([data-glass="none"]) .mod-featured-card,
+html[data-glass]:not([data-glass="none"]) .mod-version-item,
+html[data-glass]:not([data-glass="none"]) .ps-card,
+html[data-glass]:not([data-glass="none"]) .ps-refresh-btn,
+html[data-glass]:not([data-glass="none"]) .ps-page-btn,
+html[data-glass]:not([data-glass="none"]) .ps-join-banner,
+html[data-glass]:not([data-glass="none"]) .toast,
+html[data-glass]:not([data-glass="none"]) .java-item,
+html[data-glass]:not([data-glass="none"]) .java-download-item,
+html[data-glass]:not([data-glass="none"]) .version-grid-item,
+html[data-glass]:not([data-glass="none"]) .version-item,
+html[data-glass]:not([data-glass="none"]) .error-versions-header,
+html[data-glass]:not([data-glass="none"]) .ver-card-style-toggle,
+html[data-glass]:not([data-glass="none"]) .va-head,
+html[data-glass]:not([data-glass="none"]) .home-current-version-card,
+html[data-glass]:not([data-glass="none"]) .floating-window-controls {
+    background-color: transparent;
+    background-image: var(--ge-surface-card);
+    background-blend-mode: var(--ge-blend, normal);
+    -webkit-backdrop-filter: var(--ge-filter);
+    backdrop-filter: var(--ge-filter);
+    border-color: var(--ge-edge);
+    box-shadow: var(--ge-shadow);
+}
+
+/* ============================================================================
+ * 7. 应用：大块面板（原本用 --bg-glass 的元素）
+ * ========================================================================== */
+html[data-glass]:not([data-glass="none"]) .sidebar,
+html[data-glass]:not([data-glass="none"]) .title-bar,
+html[data-glass]:not([data-glass="none"]) .vset-header,
+html[data-glass]:not([data-glass="none"]) .accts-detail-btn,
+html[data-glass]:not([data-glass="none"]) .va-compose-wrap {
+    background-color: transparent;
+    background-image: var(--ge-surface-plain);
+    background-blend-mode: var(--ge-blend, normal);
+    -webkit-backdrop-filter: var(--ge-filter);
+    backdrop-filter: var(--ge-filter);
+    border-color: var(--ge-edge);
+    box-shadow: var(--ge-shadow);
+}
+
+html[data-glass]:not([data-glass="none"]) .sidebar {
+    border-right-color: var(--ge-edge);
+}
+html[data-glass]:not([data-glass="none"]) .title-bar {
+    border-bottom-color: var(--ge-edge);
+}
+
+/* ============================================================================
+ * 8. 液态玻璃专属：按钮也变成玻璃
+ * 只有 liquid 接管按钮 —— 苹果那套玻璃按钮是它最强的识别点，
+ * 而毛玻璃/亚克力接管按钮只会让点击目标发糊、边界不清，所以不动。
+ * ========================================================================== */
+html[data-glass="liquid"] {
+    /* 按钮阴影按基底分开给（浅色块里覆写）：浅色下用深阴影会让玻璃按钮
+       像"贴"在纸上的一小块脏影子，必须换成极细灰描边 + 轻投影 */
+    --ge-btn-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.42),
+        0 2px 6px rgba(0, 0, 0, 0.24),
+        0 6px 14px rgba(0, 0, 0, 0.16);
+}
+
+html[data-glass="liquid"] .btn {
+    -webkit-backdrop-filter: blur(18px) saturate(200%);
+    backdrop-filter: blur(18px) saturate(200%);
+    border: 1px solid transparent;
+    box-shadow: var(--ge-btn-shadow);
+    /* 兜底 tint：没有变体类的按钮（.btn-outline 等）也看得出是块玻璃 */
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.3) 0%, transparent 58%),
+        linear-gradient(
+            color-mix(in srgb, var(--bg-tertiary) 44%, transparent),
+            color-mix(in srgb, var(--bg-tertiary) 30%, transparent)
+        );
+}
+
+/* 中性按钮（secondary / ghost / outline 等）：tint 取自 --bg-tertiary，保持中性 */
+html[data-glass="liquid"] .btn-secondary,
+html[data-glass="liquid"] .btn-ghost,
+html[data-glass="liquid"] .btn-block {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.3) 0%, transparent 58%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-tertiary) 46%, transparent),
+            color-mix(in srgb, var(--bg-tertiary) 32%, transparent)
+        );
+}
+
+/* 主按钮：保留 accent 色相（不然按钮认不出来），但降不透明 + 上高光 */
+html[data-glass="liquid"] .btn-primary {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.42) 0%, transparent 60%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--accent) 74%, transparent),
+            color-mix(in srgb, var(--accent) 54%, transparent)
+        );
+}
+
+html[data-glass="liquid"] .btn-accent {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.4) 0%, transparent 60%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--accent) 84%, transparent),
+            color-mix(in srgb, var(--accent-hover) 66%, transparent)
+        );
+}
+
+html[data-glass="liquid"] .btn-success {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.4) 0%, transparent 60%),
+        linear-gradient(135deg, rgba(34, 197, 94, 0.82), rgba(22, 163, 74, 0.66));
+    border-color: transparent;
+}
+
+html[data-glass="liquid"] .btn-danger {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.38) 0%, transparent 60%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--danger, #ef4444) 82%, transparent),
+            color-mix(in srgb, var(--danger, #ef4444) 64%, transparent)
+        );
+}
+
+/* 启动按钮：绿色玻璃，保持它"最重要的按钮"的存在感 */
+html[data-glass="liquid"] .btn-launch {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.45) 0%, transparent 62%),
+        linear-gradient(135deg, rgba(76, 175, 80, 0.85), rgba(46, 125, 50, 0.7));
+    border-color: transparent;
+}
+
+/* hover / active：原来的规则用的是 background 简写（会清掉 background-image），
+   这里必须重新给一层半透明版本，否则一 hover 玻璃就"破功"变实色 */
+html[data-glass="liquid"] .btn-primary:hover {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.55) 0%, transparent 62%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--accent-hover) 80%, transparent),
+            color-mix(in srgb, var(--accent) 60%, transparent)
+        );
+}
+html[data-glass="liquid"] .btn-accent:hover,
+html[data-glass="liquid"] .btn-success:hover {
+    filter: brightness(1.12);
+}
+html[data-glass="liquid"] .btn-secondary:hover,
+html[data-glass="liquid"] .btn-ghost:hover {
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.38) 0%, transparent 60%),
+        linear-gradient(
+            142deg,
+            color-mix(in srgb, var(--bg-hover) 54%, transparent),
+            color-mix(in srgb, var(--bg-tertiary) 40%, transparent)
+        );
+}
+html[data-glass="liquid"] .btn-outline:hover {
+    background-color: transparent;
+    background-image: linear-gradient(
+        rgba(var(--accent-rgb), 0.18),
+        rgba(var(--accent-rgb), 0.18)
+    );
+}
+
+
+/* ============================================================================
+ * 侧栏导航按钮 —— 只有「选中态」才出现液态玻璃
+ * ----------------------------------------------------------------------------
+ * 不要给每个按钮都铺一层玻璃：侧栏有十几个按钮，全铺会糊成一片，
+ * 而且和"点击之后才有反馈"的直觉相反。这里只接管选中态。
+ *
+ * 关键：玻璃复用 ::after，不另起一层。::after 原本就是那个 accent 淡底
+ * （inset 2px 4px / 圆角 10px，nav-sub-btn 是 1px 3px / 7px），
+ * 在它上面直接加模糊与高光，几何天然和原有的点击高亮对齐，不会错位。
+ * 给按钮本体加 z-index:0 建 stacking context，再把 ::after 压到 -1，
+ * 玻璃就落在「图标文字之下、侧栏之上」，不会盖住字。
+ * ========================================================================== */
+html[data-glass="liquid"] .nav-btn,
+html[data-glass="liquid"] .nav-sub-btn {
+    position: relative;
+    z-index: 0;
+    background-color: transparent;
+    background-image: none;
+}
+
+html[data-glass="liquid"] .nav-btn::after,
+html[data-glass="liquid"] .nav-sub-btn::after {
+    z-index: -1;
+}
+
+html[data-glass="liquid"] .nav-btn.active::after,
+html[data-glass="liquid"] .nav-sub-btn.active::after {
+    opacity: 1;
+    background-color: transparent;
+    background-image:
+        radial-gradient(120% 140% at 20% -30%, rgba(255, 255, 255, 0.55) 0%, transparent 62%),
+        linear-gradient(
+            color-mix(in srgb, var(--accent) 30%, transparent),
+            color-mix(in srgb, var(--accent) 16%, transparent)
+        );
+    -webkit-backdrop-filter: blur(14px) saturate(190%);
+    backdrop-filter: blur(14px) saturate(190%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34),
+                inset 0 1px 0 rgba(255, 255, 255, 0.68),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* 禁用态：玻璃按钮不参与，退回实色以免看起来还能点 */
+html[data-glass="liquid"] .btn:disabled,
+html[data-glass="liquid"] .btn[disabled] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-image: none;
+    background-color: var(--bg-tertiary);
+    opacity: 0.55;
+    box-shadow: none;
+}
+
+/* 这两个元素的 :hover 用的是实色 background 简写，一 hover 玻璃就变回实色 */
+html[data-glass]:not([data-glass="none"]) .home-current-version-card:hover {
+    background-color: transparent;
+    background-image: var(--ge-surface-card);
+    border-color: var(--accent);
+}
+
+/* 切换效果时给主要面板一个平滑过渡（只在玻璃态命中，关闭时无开销） */
+html[data-glass]:not([data-glass="none"]) .card,
+html[data-glass]:not([data-glass="none"]) .sidebar,
+html[data-glass]:not([data-glass="none"]) .title-bar,
+html[data-glass="liquid"] .btn {
+    transition: background-color 0.35s ease, background-image 0.35s ease,
+                border-color 0.35s ease, box-shadow 0.35s ease, filter 0.2s ease;
+}
+
+/* ============================================================================
+ * 个性化页「视觉效果」卡片：四个互斥选项，竖排一行一个
+ * ========================================================================== */
+.ge-option-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ge-option {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-radius: var(--radius, 12px);
+    border: 1px solid var(--border, #2a2f3a);
+    background: var(--bg-secondary, #1a1d24);
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 玻璃态下选项行也跟着半透明，否则卡片内部是一块块纯白实底，玻璃质感全被盖掉 */
+html[data-glass]:not([data-glass="none"]) .ge-option {
+    /* 0.7 是反复调出来的平衡点：再透正文就糊进背景，再实又变回一块白板 */
+    background-color: transparent;
+    background-image: linear-gradient(
+        color-mix(in srgb, var(--bg-secondary) 70%, transparent),
+        color-mix(in srgb, var(--bg-secondary) 70%, transparent)
+    );
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+}
+
+/* 液态玻璃下选项行同样吃一套薄版 rim（注意优先级高于下面的 .ge-option.active） */
+html[data-glass="liquid"] .ge-option {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+/* 选中态：边框由 .ge-option.active 的 border-color 给，
+   这里只补一圈柔和外发光 —— 千万别再叠 inset 描边，
+   否则 border + inset + 外圈三层叠一起，浅色下会糊成一条又粗又脏的灰边 */
+html[data-glass="liquid"] .ge-option.active {
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb, 76, 141, 255), 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.ge-option:hover {
+    border-color: rgba(var(--accent-rgb, 76, 141, 255), 0.45);
+}
+
+.ge-option.active {
+    border-color: var(--accent, #4c8dff);
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb, 76, 141, 255), 0.3);
+}
+
+.ge-option-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ge-option-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.ge-option-check {
+    font-size: 12px;
+    color: var(--accent, #4c8dff);
+}
+
+.ge-option-desc {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+/* 浅色主题下锁定的材质选项：灰掉 + 禁点，"默认"永远可选 */
+.ge-option.locked {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.ge-option.locked:hover {
+    border-color: var(--border, #2a2f3a);
+    box-shadow: none;
+}
+
+/* 锁定时选中态只留一圈淡边框，别再叠外发光（浅色下会糊成灰边） */
+.ge-option.locked.active {
+    box-shadow: none;
+}
+
+.ge-option-check-muted {
+    color: var(--text-muted, #8b93a7);
+}
+
+/* 浅色主题下的说明条：告诉用户为什么点不动 */
+.ge-hint-warn {
+    display: block;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 167, 38, 0.35);
+    background: rgba(255, 167, 38, 0.1);
+    color: #e08a1e;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* 右侧效果预览条：底下压一条彩色渐变，上面盖一层材质，直观看出差异 */
+.ge-preview {
+    position: relative;
+    flex: 0 0 96px;
+    width: 96px;
+    height: 46px;
+    border-radius: 10px;
+    overflow: hidden;
+    background:
+        radial-gradient(60% 80% at 18% 20%, #ff8a3d 0%, transparent 60%),
+        radial-gradient(70% 90% at 82% 30%, #4c8dff 0%, transparent 62%),
+        linear-gradient(120deg, #3dd68c 0%, #a06cff 55%, #ff6b9d 100%);
+}
+
+.ge-preview-pane {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 8px;
+    bottom: 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* 默认（扁平）：不透明实色，完全盖住底下的彩色渐变 */
+.ge-preview.flat .ge-preview-pane {
+    background: #2b2f3a;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 毛玻璃：均匀磨砂 */
+.ge-preview.frosted .ge-preview-pane {
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%);
+    background: rgba(255, 255, 255, 0.26);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.22),
+                0 3px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* 液态玻璃：specular + rim + 极淡 tint，和真实效果保持同一套语言 */
+.ge-preview.liquid .ge-preview-pane {
+    -webkit-backdrop-filter: blur(20px) saturate(200%);
+    backdrop-filter: blur(20px) saturate(200%);
+    background-image:
+        radial-gradient(120% 130% at 18% -18%, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.14) 36%, transparent 62%),
+        radial-gradient(90% 80% at 88% 108%, rgba(255, 255, 255, 0.26) 0%, transparent 48%),
+        linear-gradient(142deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.1) 46%, rgba(255, 255, 255, 0.24) 100%);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+        inset 0 1px 1px rgba(255, 255, 255, 0.85),
+        inset 0 -1px 1px rgba(255, 255, 255, 0.28),
+        inset 1px 0 1px rgba(255, 255, 255, 0.4),
+        inset -1px 0 1px rgba(255, 255, 255, 0.2),
+        0 4px 12px rgba(0, 0, 0, 0.24);
+}
+
+/* 亚克力：模糊 + 灰度噪点（磨砂颗粒），这是它和毛玻璃最大的区别 */
+.ge-preview.acrylic .ge-preview-pane {
+    -webkit-backdrop-filter: blur(18px) saturate(130%);
+    backdrop-filter: blur(18px) saturate(130%);
+    background-color: rgba(255, 255, 255, 0.34);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+    background-blend-mode: soft-light;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+                0 3px 8px rgba(0, 0, 0, 0.18);
+}
