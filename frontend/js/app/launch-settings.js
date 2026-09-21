@@ -472,6 +472,9 @@ async function applyThemeByName(theme) {
   const st = typeof getPersonalizeState === 'function' ? getPersonalizeState() : null;
   if (st) st.theme = theme;
 
+  // 视觉效果只在深色主题下生效：主题换了要重新校验（偏好值保留，silent 由调用方决定是否提示）
+  if (typeof syncGlassEffectWithTheme === 'function') syncGlassEffectWithTheme({ silent: true });
+
   try {
     await window.electronAPI.store.set('versepc_theme', theme);
   } catch (e) {
