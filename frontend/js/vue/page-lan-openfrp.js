@@ -7,6 +7,7 @@
  */
 const PageLanOpenfrp = {
   name: 'PageLanOpenfrp',
+  mixins: [window.VerseFrp.uptimeMixin],
   data() {
     return {
       auth: { loggedIn: false, username: null, tokenPreview: null },
@@ -70,7 +71,7 @@ const PageLanOpenfrp = {
         const t = await g(function () { return inv('openfrp_tunnel_list'); });
         if (t && t.data && Array.isArray(t.data.list)) self.tunnels = t.data.list;
         const r = await inv('openfrp_run_status').catch(function () { return null; });
-        if (r) this.runStatus = r;
+        if (r) { this.runStatus = r; this.syncUptime(r); }
         const f = await inv('openfrp_frpc_info').catch(function () { return null; });
         if (f) this.frpc = f;
       } finally { this.loading = false; }
@@ -195,6 +196,8 @@ const PageLanOpenfrp = {
     window.addEventListener('frp-frpc-changed', this._onFrpcChanged = function () {
       self.F.invoke('openfrp_frpc_info').then(function (f) { if (f) self.frpc = f; }).catch(function () {});
     });
+    // 运行计时：本地每秒累加 + 每 5 秒与后端对表
+    this.startUptimeTicker('openfrp_run_status');
     const boot = async function () {
       await self.loadAuth();
       if (self.auth.loggedIn) await self.refresh();
@@ -207,7 +210,7 @@ const PageLanOpenfrp = {
     boot();
   },
   beforeUnmount() {
-    this.stopPoll(); this.stopLogTimer();
+    this.stopPoll(); this.stopLogTimer(); this.stopUptimeTicker();
     if (this._unlisten) this._unlisten();
     if (this._onFrpcChanged) window.removeEventListener('frp-frpc-changed', this._onFrpcChanged);
   },
@@ -321,7 +324,7 @@ const PageLanOpenfrp = {
                     <div class="frp-tunnel-head">
                       <span class="frp-badge frp-badge--type">{{ t.proxyType }}</span>
                       <span class="frp-tunnel-name">{{ t.proxyName }}</span>
-                      <span v-if="runMap[String(t.id)] && runMap[String(t.id)].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(runMap[String(t.id)].uptimeSecs) }}</span>
+                      <span v-if="runMap[String(t.id)] && runMap[String(t.id)].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(uptimeOf(t.id)) }}</span>
                     </div>
                     <div class="frp-tunnel-meta">
                       <span>节点：{{ nodeName(t.nid) }}</span>
