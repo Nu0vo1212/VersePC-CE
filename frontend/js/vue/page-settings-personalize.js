@@ -28,6 +28,9 @@
       blur: 0,
       fit: 'cover',
       customFileName: '未选择',
+      glassEffect: 'none',
+      // 浅色主题下材质被禁用（偏好值仍在 glassEffect 里保留）
+      glassBlocked: false,
       weWallpapers: [],
       weWallpaper: null,
       wePickerOpen: false,
@@ -60,6 +63,8 @@
         if (st) st.customLight = checked;
         if (typeof setCustomThemeMode === 'function') await setCustomThemeMode(checked);
         if (typeof applyCustomThemeColor === 'function') await applyCustomThemeColor(st ? st.customColor : '#4c8dff');
+        // 自定义主题切深浅同样影响视觉效果是否可用
+        if (typeof syncGlassEffectWithTheme === 'function') syncGlassEffectWithTheme();
       }
     },
     template: `
@@ -468,6 +473,66 @@
   `
   };
 
+  // ============== 视觉效果卡片 ==============
+
+  // 四个互斥选项：默认扁平 / 毛玻璃 / 液态玻璃 / 亚克力
+  const GLASS_OPTIONS = [
+    { key: 'none', label: '默认', desc: '不透明纯色底，性能最好', preview: 'flat' },
+    { key: 'frosted', label: '毛玻璃', desc: '半透明底 + 背景模糊，干净通透', preview: 'frosted' },
+    { key: 'liquid', label: '液态玻璃', desc: '更厚的模糊 + 折射渐变 + 镜面高光', preview: 'liquid' },
+    { key: 'acrylic', label: '亚克力', desc: 'Fluent 材质：模糊底 + 细腻磨砂噪点', preview: 'acrylic' }
+  ];
+
+  const VisualEffectsCard = {
+    name: 'VisualEffectsCard',
+    computed: {
+      state() { return window.VersePC.personalizeState; },
+      options() { return GLASS_OPTIONS; },
+      // 浅色主题下三个材质全部锁定（默认扁平始终可选）
+      locked() { return !!this.state.glassBlocked; }
+    },
+    methods: {
+      isDisabled(key) { return this.locked && key !== 'none'; },
+      pickGlass(mode) {
+        if (this.locked && mode !== 'none') {
+          if (typeof showToast === 'function') showToast('视觉效果仅在深色主题下可用，请先切换到黑色或自定义主题', 'warning');
+          return;
+        }
+        if (typeof applyGlassEffectByName === 'function') applyGlassEffectByName(mode);
+      }
+    },
+    template: `
+          <div class="card">
+            <h3>视觉效果</h3>
+            <div class="form-group">
+              <label>界面材质</label>
+              <div class="ge-option-grid">
+                <div v-for="opt in options" :key="opt.key"
+                     class="ge-option" :class="{active: state.glassEffect === opt.key, locked: isDisabled(opt.key)}"
+                     @click="pickGlass(opt.key)">
+                  <div class="ge-option-text">
+                    <div class="ge-option-title">
+                      <span>{{ opt.label }}</span>
+                      <span v-if="state.glassEffect === opt.key && !isDisabled(opt.key)" class="ge-option-check">已启用</span>
+                      <span v-else-if="state.glassEffect === opt.key" class="ge-option-check ge-option-check-muted">浅色下暂停</span>
+                      <span v-else-if="isDisabled(opt.key)" class="ge-option-check ge-option-check-muted">需要深色主题</span>
+                    </div>
+                    <div class="ge-option-desc">{{ opt.desc }}</div>
+                  </div>
+                  <div class="ge-preview" :class="opt.preview">
+                    <div class="ge-preview-pane"></div>
+                  </div>
+                </div>
+              </div>
+              <div v-if="locked" class="ge-hint-warn">
+                当前是浅色主题，视觉效果已暂时关闭。切到「黑色」或「自定义」主题会自动恢复，你的选择已保留。
+              </div>
+              <span class="form-hint">配合「背景」里的壁纸效果最明显；材质会用到背景模糊，低配机器上可能掉帧，卡顿时切回「默认」即可。</span>
+            </div>
+          </div>
+  `
+  };
+
   // ============== 壳组件 ==============
 
   const PageSettingsPersonalize = {
@@ -475,7 +540,8 @@
     components: {
       ThemeAppearanceCard: ThemeAppearanceCard,
       BackgroundCard: BackgroundCard,
-      MotionCard: MotionCard
+      MotionCard: MotionCard,
+      VisualEffectsCard: VisualEffectsCard
     },
     template: `
           <div class="page-header">
@@ -485,6 +551,7 @@
             <theme-appearance-card></theme-appearance-card>
             <background-card></background-card>
             <motion-card></motion-card>
+            <visual-effects-card></visual-effects-card>
             <div class="form-actions">
               <button class="btn btn-primary" @click="save">保存设置</button>
               <button class="btn btn-secondary" @click="reset">重置默认</button>
