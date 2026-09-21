@@ -1,7 +1,10 @@
 /* 在不启动启动器的情况下校验 Vue 组件模板：
  *   1. 用 @vue/compiler-dom 编译 template，捕获模板语法错误；
  *   2. 用 @vue/server-renderer 真渲染一次，捕获运行期才暴露的错误（如未定义组件/指令）。
- * 用法：node scripts/check-vue-template.mjs frontend/js/vue/page-settings-other.js
+ * 组件若在加载期依赖别的脚本（如 FRP 页依赖 js/app/frp-bridge.js 提供的全局对象），
+ * 用 --preload 先灌进去，可重复：
+ *   node scripts/check-vue-template.mjs frontend/js/vue/page-lan-sakura.js \
+ *        --preload frontend/js/app/frp-bridge.js
  */
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -11,9 +14,11 @@ import * as VueRuntime from 'vue';
 import { createSSRApp } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 
-const target = process.argv[2];
+const argv = process.argv.slice(2);
+const preloads = argv.filter((a) => a.startsWith('--preload=')).map((a) => a.slice('--preload='.length));
+const target = argv.find((a) => !a.startsWith('--'));
 if (!target) {
-  console.error('用法：node scripts/check-vue-template.mjs <page-*.js>');
+  console.error('用法：node scripts/check-vue-template.mjs <page-*.js> [--preload <dep.js>]');
   process.exit(2);
 }
 
@@ -45,6 +50,11 @@ sandbox.Vue = VueRuntime;
 sandbox.window.Vue = VueRuntime;
 
 const ctx = vm.createContext(sandbox);
+// 依赖脚本必须先于目标组件执行（浏览器里是 index.html 的 script 顺序保证的）
+for (const p of preloads) {
+  vm.runInContext(readFileSync(p, 'utf8'), ctx, { filename: p });
+  console.log(`· 已预载依赖：${p}`);
+}
 vm.runInContext(readFileSync(target, 'utf8'), ctx, { filename: target });
 
 const reg = sandbox.window.VersePC;
