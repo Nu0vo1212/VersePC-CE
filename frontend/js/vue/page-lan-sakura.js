@@ -6,6 +6,7 @@
  */
 const PageLanSakura = {
   name: 'PageLanSakura',
+  mixins: [window.VerseFrp.uptimeMixin],
   data() {
     return {
       auth: { loggedIn: false, username: null, tokenPreview: null },
@@ -91,7 +92,7 @@ const PageLanSakura = {
         const t = await g(function () { return inv('sakura_tunnel_list'); });
         if (t) this.tunnels = Array.isArray(t) ? t : [];
         const r = await inv('sakura_run_status').catch(function () { return null; });
-        if (r) this.runStatus = r;
+        if (r) { this.runStatus = r; this.syncUptime(r); }
         const f = await inv('sakura_frpc_info').catch(function () { return null; });
         if (f) this.frpc = f;
       } finally { this.loading = false; }
@@ -118,6 +119,8 @@ const PageLanSakura = {
       showToast('已清除访问密钥', 'success');
     },
     openTokenPage() { window.bridge.openExternal('https://www.natfrp.com/user/'); },
+    /** 浏览器打开 SakuraFrp 控制台（密钥就从这里复制） */
+    openConsole() { window.bridge.openExternal('https://www.natfrp.com/user/'); },
     async startTunnel(t) {
       await this.F.guard(function () { return window.VerseFrp.invoke('sakura_tunnel_start', { query: String(t.id), autoRestart: true }); }, '隧道「' + t.name + '」已启动');
       this.refresh();
@@ -182,6 +185,8 @@ const PageLanSakura = {
         self.logs = self.logs.concat([line]).slice(-1000);
       }
     });
+    // 运行计时：本地每秒累加 + 每 5 秒与后端对表
+    this.startUptimeTicker('sakura_run_status');
     const boot = async function () {
       await self.loadAuth();
       if (self.auth.loggedIn) await self.refresh();
@@ -190,6 +195,7 @@ const PageLanSakura = {
   },
   beforeUnmount() {
     this.stopLogTimer();
+    this.stopUptimeTicker();
     if (this._unlisten) this._unlisten();
   },
   template: `
@@ -205,7 +211,13 @@ const PageLanSakura = {
               <p class="frp-card-hint">到 <a href="javascript:void(0)" @click="openTokenPage()" style="color:var(--accent)">natfrp.com → 用户信息</a> 复制「访问密钥」，粘贴到这里保存。密钥只保存在本机，日志里只显示打码后的前后 4 位。</p>
               <div class="frp-field" style="margin-top:12px">
                 <span>访问密钥</span>
-                <input class="text-input" type="password" v-model="tokenInput" placeholder="SakuraFrp 访问密钥" autocomplete="off" spellcheck="false" @keydown.enter="saveToken()">
+                <div class="frp-field-row">
+                  <input class="text-input" type="password" v-model="tokenInput" placeholder="SakuraFrp 访问密钥" autocomplete="off" spellcheck="false" @keydown.enter="saveToken()">
+                  <button class="btn btn-secondary btn-sm frp-btn-nowrap" @click="openConsole()" title="在浏览器打开 natfrp.com → 用户信息">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="frp-btn-icon"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    打开控制台
+                  </button>
+                </div>
               </div>
               <div class="frp-row" style="margin-top:12px">
                 <button class="btn btn-primary" :disabled="saving" @click="saveToken()">
@@ -239,6 +251,7 @@ const PageLanSakura = {
                   </span>
                   <div class="frp-row" style="gap:8px">
                     <button class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh()">刷新</button>
+                    <button class="btn btn-secondary btn-sm" @click="openConsole()">控制台</button>
                     <button class="btn btn-secondary btn-sm" @click="logout()">退出登录</button>
                   </div>
                 </div>
@@ -293,7 +306,7 @@ const PageLanSakura = {
                       <span class="frp-badge frp-badge--type">{{ t.type }}</span>
                       <span class="frp-tunnel-name">{{ t.name }}</span>
                       <span v-if="t.status === 2" class="frp-badge frp-badge--err">已封禁</span>
-                      <span v-if="runMap[String(t.id)] && runMap[String(t.id)].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(runMap[String(t.id)].uptimeSecs) }}</span>
+                      <span v-if="runMap[String(t.id)] && runMap[String(t.id)].running" class="frp-badge frp-badge--ok"><span class="frp-dot frp-dot--live"></span>本地运行中 · {{ F.fmtUptime(uptimeOf(t.id)) }}</span>
                     </div>
                     <div class="frp-tunnel-meta">
                       <span>节点：{{ nodeName(t.node) }}</span>
