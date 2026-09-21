@@ -35,14 +35,9 @@ const PIN_TAB_ICON_LABEL = { save: '钉子', version: '星星', shader: '钉子'
 const PageHome = {
   data() {
     return {
-      saves: [],
-      savesOpen: false,
-      savesLoading: false,
       currentVersionId: '',
       pinsOpen: false,
-      pinnedActiveTab: 'save',
-      _saveIconCache: {},
-      _saveIconLoading: {}
+      pinnedActiveTab: 'save'
     };
   },
   template: `
@@ -96,40 +91,7 @@ const PageHome = {
         </div>
       </div>
 
-      <!-- 底部中间小箭头：点击滑出当前版本存档快速启动 -->
-      <button class="home-saves-arrow" :class="{ open: savesOpen }" @click="toggleSaves" :title="savesOpen ? '收起存档' : '展开存档'">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>
-      </button>
-
-      <!-- 存档容器（内嵌在首页，从底部展开） -->
-      <div class="home-saves-wrap" :class="{ open: savesOpen }">
-        <div class="home-saves-drawer">
-          <div class="home-saves-drawer-header">
-            <span>{{ currentVersionName }} · 存档快速启动</span>
-          </div>
-          <div class="home-saves-body">
-            <p v-if="!currentVersionId" class="home-saves-hint">尚未选择版本，请先在首页选择游戏版本</p>
-            <p v-else-if="savesLoading" class="home-saves-hint">加载中...</p>
-            <p v-else-if="saves.length === 0" class="home-saves-hint">当前版本暂无存档</p>
-            <div v-else class="home-saves-row">
-              <div class="home-save-card" v-for="s in saves" :key="s.folder" @click="launchSave(s)" :title="'启动并进入 ' + s.name">
-                <div class="home-save-card-bg">
-                  <img v-if="saveIconUrl(s)" :src="saveIconUrl(s)" alt="">
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                </div>
-                <div class="home-save-card-info">
-                  <div class="home-save-card-name" :title="s.name">{{ s.name }}</div>
-                  <div class="home-save-card-meta">{{ difficultyLabel(s.difficulty) }}</div>
-                </div>
-                <button class="pin-btn home-save-pin-btn" :class="{ active: isPinned('save', s.folder) }"
-                        :title="isPinned('save', s.folder) ? '取消置顶' : '置顶存档'" @click.stop="pinSave(s)">
-                  <span v-html="ic('pin')"></span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- 首页底部「存档快速启动」抽屉已整块移除（含底部箭头入口） -->
 
       <!-- 「我的置顶」面板已整块移除（入口按钮同时删除） -->
     </div>
@@ -138,12 +100,6 @@ const PageHome = {
     // 读取共享响应式 store，运行实例变化时主页卡片自动更新
     gameInstances() {
       return window.VersePCGameStore ? window.VersePCGameStore.instances : [];
-    },
-    currentVersionName() {
-      const vid = this.currentVersionId;
-      if (!vid) return '未选择版本';
-      const v = (typeof installedVersions !== 'undefined' && installedVersions || []).find(x => x.id === vid);
-      return (v && v.customName) || vid;
     },
     pinTabs() {
       return PIN_TABS;
@@ -173,7 +129,6 @@ const PageHome = {
     },
     openPins() {
       this.pinsOpen = true;
-      if (this.savesOpen) this.closeSaves(); // 与存档抽屉互斥
       // 打开时读取当前选中的版本
       this.currentVersionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) || '';
       // 面板里的版本项图标是异步加载的，展开后触发一次
@@ -191,11 +146,6 @@ const PageHome = {
     ic(name) {
       return (window.VersePC.PIN_ICONS && window.VersePC.PIN_ICONS[name]) || '';
     },
-    pinSave(s) {
-      if (typeof window.togglePinSave === 'function') {
-        window.togglePinSave(s.folder, s.name, this.currentVersionId, s.icon || '', s.difficulty);
-      }
-    },
     pinsByType(type) {
       return (window.VersePC.pinnedStore ? window.VersePC.pinnedStore.items : []).filter(p => p.type === type);
     },
@@ -204,10 +154,9 @@ const PageHome = {
     },
     pinIconUrl(p) {
       const e = p.extra || {};
-      if (p.type === 'save') {
-        if (!e.icon) return '';
-        return this.saveIconUrl({ folder: e.folder, icon: e.icon });
-      }
+      // 存档类型的图标原本走首页抽屉的 saveIconUrl（已随「存档快速启动」移除），
+      // 置顶面板本身也已整块移除，这里不再回退加载，直接返回空走占位图标
+      if (p.type === 'save') return '';
       if ((p.type === 'shader' || p.type === 'mod') && e.icon) return e.icon;
       return '';
     },
@@ -269,75 +218,6 @@ const PageHome = {
       if (!ok) return;
       if (typeof window.removePinned === 'function') window.removePinned(p.type, p.id);
       showToast('已取消置顶', 'success');
-    },
-    // ── 存档快速启动抽屉 ──
-    toggleSaves() {
-      if (this.savesOpen) this.closeSaves();
-      else this.openSaves();
-    },
-    openSaves() {
-      this.savesOpen = true;
-      if (this.pinsOpen) this.closePins(); // 与收藏置顶面板互斥
-      // 打开时读取当前选中的版本（全局变量非响应式，不能靠 computed 自动跟随）
-      this.currentVersionId = (typeof currentLaunchVersionId !== 'undefined' && currentLaunchVersionId) || '';
-      this.loadSaves();
-    },
-    closeSaves() {
-      this.savesOpen = false;
-    },
-    async loadSaves() {
-      const vid = this.currentVersionId;
-      if (!vid) {
-        this.saves = [];
-        return;
-      }
-      this.savesLoading = true;
-      try {
-        const res = await window.bridge.invoke('version_list_saves', { versionId: vid });
-        this.saves = (res && res.saves) || [];
-      } catch (e) {
-        console.error('[HomeSaves] Load error:', e);
-        this.saves = [];
-      } finally {
-        this.savesLoading = false;
-      }
-    },
-    saveIconUrl(s) {
-      if (!s || !s.icon) return '';
-      if (this._saveIconCache[s.folder]) return this._saveIconCache[s.folder];
-      if (this._saveIconLoading[s.folder]) return '';
-      this._saveIconLoading[s.folder] = true;
-      const self = this;
-      Promise.resolve(window.bridge && window.bridge.readFileBuffer(s.icon)).then((buffer) => {
-        try {
-          const u8 = typeof window.decodeFileBuffer === 'function'
-            ? window.decodeFileBuffer(buffer)
-            : (buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || []));
-          if (!u8 || u8.byteLength === 0) return;
-          const blob = new Blob([u8], { type: 'image/png' });
-          self._saveIconCache[s.folder] = URL.createObjectURL(blob);
-        } catch (e) {}
-      }).catch(() => {});
-      return '';
-    },
-    launchSave(s) {
-      const vid = this.currentVersionId;
-      if (!vid) {
-        showToast('请先选择游戏版本', 'warning');
-        return;
-      }
-      // 收起抽屉，走与「启动游戏」一致的完整启动流程，并带上世界名直接进存档
-      this.closeSaves();
-      if (typeof quickPlayWorld === 'undefined') {
-        showToast('启动入口未就绪', 'error');
-        return;
-      }
-      quickPlayWorld = s.folder;
-      if (typeof handleLaunch === 'function') {
-        handleLaunch();
-      } else {
-        showToast('启动入口未就绪', 'error');
-      }
     },
     difficultyLabel(d) {
       return { 0: '和平', 1: '简单', 2: '普通', 3: '困难' }[d] || '未知';
