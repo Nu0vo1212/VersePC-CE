@@ -77,6 +77,13 @@
     box-sizing: border-box;
 }
 
+/* 输入框右侧并排按钮（如樱花页的「打开控制台」）
+   ⚠ .btn 自带 overflow:hidden 会让 flex 项 min-width 退化，输入框必须 min-width:0 */
+.frp-field-row { display: flex; align-items: center; gap: 8px; }
+.frp-field-row .text-input { flex: 1 1 auto; min-width: 0; }
+.frp-btn-nowrap { flex: 0 0 auto; white-space: nowrap; }
+.frp-btn-icon { width: 14px; height: 14px; flex: 0 0 auto; }
+
 .frp-alert {
     padding: 10px 12px;
     border-radius: var(--radius, 10px);
