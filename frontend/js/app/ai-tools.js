@@ -189,12 +189,26 @@
   var LOADER_KEYS = ['fabric', 'forge', 'neoforge'];
   var LOADER_NAMES = { fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
 
-  /** 「1.20.1-fabric-0.15.11」→ 「1.20.1」：取 MC 原版号 */
+  /** 「1.20.1-fabric-0.15.11」/「fabric-loader-0.15.11-1.20.1」→ 「1.20.1」：取 MC 原版号 */
   function _mcVersionOf(raw) {
     var s = String(raw || '').trim();
-    var m = s.match(/^(\d+\.\d+(?:\.\d+)?)/);
-    if (m) return m[1];
-    return s.split(/[-_ ]/)[0];
+    if (!s) return '';
+    var LOADER_WORDS = ['fabric', 'loader', 'forge', 'neoforge', 'quilt', 'optifine'];
+    var segs = s.split(/[-_ /]+/).filter(function (x) { return !!x; });
+    var isVer = function (x) { return /^\d+(\.\d+){1,2}$/.test(x); };
+    // 1) 主流 MC 版本号是 1.x，优先按它取（避免把 fabric-loader-0.15.11 当成游戏版本）
+    for (var i = 0; i < segs.length; i++) {
+      if (isVer(segs[i]) && segs[i].indexOf('1.') === 0) return segs[i];
+    }
+    // 2) 其它数字版本号：紧跟在加载器名后面的跳过
+    for (var j = 0; j < segs.length; j++) {
+      if (!isVer(segs[j])) continue;
+      var prev = j > 0 ? segs[j - 1].toLowerCase() : '';
+      if (LOADER_WORDS.indexOf(prev) >= 0) continue;
+      return segs[j];
+    }
+    // 3) 保底：快照这类名字直接取第一个片段
+    return segs[0] || s;
   }
 
   /** 已安装版本里有没有这个 MC 原版（用于决定「加装」还是「全新装」） */
@@ -360,12 +374,12 @@
 
     {
       name: 'search_mods',
-      desc: '在 Modrinth / CurseForge 上搜索模组 / 资源（模组、整合包、材质、光影、数据包），只返回搜索结果，不安装。想给用户推荐东西时用。',
+      desc: '在 Modrinth / CurseForge 上搜索模组 / 资源（模组、整合包、材质、光影、数据包），只返回搜索结果，不安装。想给用户推荐东西时用。source 留空表示两个平台一起搜（推荐，一次就能搜全，别一个平台搜不到再搜另一个）。',
       kind: 'read',
       params: {
         query: { type: 'string', description: '搜索关键词，例如 "sodium"、"小地图"' },
         type: { type: 'string', description: 'mod / modpack / resourcepack / shader / datapack，默认 mod', enum: ['mod', 'modpack', 'resourcepack', 'shader', 'datapack'] },
-        source: { type: 'string', description: 'modrinth / curseforge / any，默认 modrinth' },
+        source: { type: 'string', description: '留空 = 两个平台一起搜（推荐）；也可指定 modrinth / curseforge' },
         loader: { type: 'string', description: 'fabric / forge / neoforge / quilt，可留空' },
         gameVersion: { type: 'string', description: '游戏版本，例如 1.20.1，可留空' },
         limit: { type: 'integer', description: '返回条数，默认 8，最多 20' }
@@ -378,7 +392,8 @@
         var limit = Math.min(Math.max(parseInt(args.limit, 10) || 8, 1), 20);
         if (type === 'mod') {
           _need(api && api.searchMods, '模组搜索接口');
-          return api.searchMods(q, args.source || 'modrinth', args.loader || '', args.gameVersion || '', '', 'relevance', limit, 0)
+          // source 留空 → any：两个平台一起搜（后端只认 modrinth / curseforge / any）
+          return api.searchMods(q, args.source || 'any', args.loader || '', args.gameVersion || '', '', 'relevance', limit, 0)
             .then(function (r) { return _fmtSearch(r, limit); });
         }
         _need(api && api.searchResources, '资源搜索接口');
@@ -669,12 +684,12 @@
 
     {
       name: 'install_mod',
-      desc: '从 Modrinth / CurseForge 搜索并安装一个模组到指定版本的 mods 目录（自动选最匹配的一个结果，含依赖）。会真的写入磁盘，必须用户确认。',
+      desc: '从 Modrinth / CurseForge 搜索并安装一个模组到指定版本的 mods 目录（自动选最匹配的一个结果，含依赖）。默认两个平台一起搜；会按目标版本的 MC 版本号 + 加载器挑文件。会真的写入磁盘，必须用户确认。',
       kind: 'write',
       params: {
         query: { type: 'string', description: '模组名称或搜索关键词' },
         version: { type: 'string', description: '装到哪个游戏版本，留空表示当前选中的版本' },
-        source: { type: 'string', description: 'modrinth / curseforge，默认 modrinth' }
+        source: { type: 'string', description: '留空 = 两个平台一起搜（推荐）；也可指定 modrinth / curseforge' }
       },
       required: ['query'],
       run: function (args) {
@@ -683,53 +698,156 @@
         _need(api && api.searchMods && api.downloadResource, '模组安装接口');
         _need(b && b.getDefaultModPath, 'mods 目录解析');
         var vid = _resolveVersionId(args);
-        var source = args.source || 'modrinth';
+        var source = args.source || 'any';
+        var parts = _verParts(vid);
         return Promise.all([_searchBestMod(api, String(args.query), vid, source), b.getDefaultModPath(vid)])
           .then(function (r) {
             var top = r[0];
             var savePath = r[1] || '';
             if (!savePath) throw new Error('拿不到 ' + _vName(vid) + ' 的 mods 目录，请先在启动器里确认该版本正常。');
-            return api.downloadResource('', top.pid, 'mod', '', savePath, '', top.source)
+            // 明确带上 MC 版本 + 加载器：后端会照这个挑文件，避免装成别的版本/加载器的构建
+            return api.downloadResource('', top.pid, 'mod', '', savePath, '', top.source, parts.gameVersion, parts.loader)
               .then(function (res) {
                 if (res && res.success === false) throw new Error(res.error || '安装失败');
                 if (typeof showModDownloadModal === 'function' && res && res.fileName) {
                   showModDownloadModal(res.fileName, res.sessionId || '', savePath);
                 }
-                return '已开始安装模组「' + top.title + '」到 ' + _vName(vid) + ' 的 mods 目录（含依赖，后台下载中）。';
+                return '已开始安装模组「' + top.title + '」到 ' + _vName(vid) + ' 的 mods 目录（按 ' +
+                  parts.gameVersion + (parts.loader ? ' / ' + parts.loader : '') + ' 匹配，含依赖，后台下载中）。';
               });
           });
       }
     },
 
     {
+      name: 'list_resource_versions',
+      desc: '查一个模组 / 整合包 / 材质包支持哪些游戏版本（返回可选的 MC 版本、加载器、文件号）。用户说了「要 1.20.1 的整合包」但不确定有没有这个版本，或要让用户挑版本时，先调它查清楚。只读。',
+      kind: 'read',
+      params: {
+        query: { type: 'string', description: '项目名或关键词（与 projectId 二选一）' },
+        projectId: { type: 'string', description: '已知的项目 ID，优先用它，避免再搜一次' },
+        type: { type: 'string', description: 'mod / modpack / resourcepack / shader，默认 modpack', enum: ['mod', 'modpack', 'resourcepack', 'shader'] },
+        source: { type: 'string', description: 'modrinth / curseforge，默认自动' },
+        gameVersion: { type: 'string', description: '只看某个游戏版本，例如 1.20.1，可留空' }
+      },
+      run: function (args) {
+        var api = _api();
+        _need(api && api.getResourceVersions, '版本列表接口');
+        var type = args.type || 'modpack';
+        var gv = _wantGameVersion(args.gameVersion);
+
+        // 先定位项目（给了 projectId 就直接用）
+        var projectP = args.projectId
+          ? Promise.resolve({ pid: String(args.projectId), source: args.source || '', title: '' })
+          : (function () {
+              var q = _require(args, 'query', 'query');
+              // 两个平台都搜一遍，取更贴近关键词的那个结果
+              return api.searchResources(q, type, '', gv, '', 'downloads', 5, 0, args.source || '')
+                .then(function (r) {
+                  var list = _pickList(r);
+                  if (list.length || args.source) return list;
+                  return api.searchResources(q, type, '', gv, '', 'downloads', 5, 0, 'curseforge').then(_pickList);
+                })
+                .then(function (list) {
+                  if (!list.length) throw new Error('没搜到「' + args.query + '」' + (gv ? '（' + gv + '）' : '') + '，换个关键词试试。');
+                  var top = list[0];
+                  var pid = top.project_id || top.projectId || top.id || top.slug;
+                  if (!pid) throw new Error('搜索结果缺少 projectId。');
+                  return { pid: pid, source: top.source || '', title: top.title || top.name || args.query };
+                });
+            })();
+
+        return projectP.then(function (p) {
+          // 版本列表接口只认 modrinth / curseforge，来源不明时两个都试
+          var sources = p.source ? [p.source] : ['modrinth', 'curseforge'];
+          var fetchOne = function (i) {
+            if (i >= sources.length) return Promise.resolve([]);
+            return api.getResourceVersions(p.pid, sources[i], '', gv).then(function (r) {
+              var list = _pickList((r && r.versions) || r) || [];
+              if (list.length) return list;
+              return fetchOne(i + 1);
+            });
+          };
+          return fetchOne(0).then(function (list) {
+            if (!list.length) return '「' + (p.title || p.pid) + '」' + (gv ? ' 没有支持 ' + gv + ' 的版本。' : ' 没有查到可用版本。');
+            // 去重：按「MC 版本 + 加载器」合并，只保留最新的一条
+            var seen = {};
+            var out = [];
+            list.forEach(function (x) {
+              var mcs = (x.gameVersions || []).filter(function (s) { return /^\d+\.\d+(\.\d+)?$/.test(s); });
+              var loaders = (x.loaders || []).filter(function (s) { return /^(fabric|forge|neoforge|quilt)$/.test(String(s).toLowerCase()); });
+              var mc = mcs[0] || '(未标注)';
+              var key = mc + '|' + (loaders.join(',') || 'any');
+              if (seen[key]) return;
+              seen[key] = 1;
+              out.push({
+                gameVersion: mc,
+                loaders: loaders,
+                fileId: x.id || '',
+                file: (x.files && x.files[0] && x.files[0].filename) || '',
+                releaseType: x.releaseType || 'release',
+                date: (x.datePublished || '').slice(0, 10)
+              });
+            });
+            out.sort(function (a, b) { return String(b.gameVersion).localeCompare(String(a.gameVersion), undefined, { numeric: true }); });
+            return _ok({
+              project: p.title || p.pid,
+              source: p.source || 'auto',
+              count: out.length,
+              // 支持的游戏版本清单（给用户挑版本用）
+              gameVersions: out.slice(0, 20)
+            });
+          });
+        });
+      }
+    },
+
+    {
       name: 'install_modpack',
-      desc: '从 Modrinth / CurseForge 搜索并安装一个整合包（会用搜索到的名称新建一个版本）。下载量大，必须用户确认。',
+      desc: '从 Modrinth / CurseForge 搜索并安装一个整合包（会用搜索到的名称新建一个版本）。用户说了游戏版本（如「1.20.1 的 XX 整合包」）就传 gameVersion，会安装该整合包对应那个版本的构建；没说就先问清楚或先调 list_resource_versions 看有哪些版本。下载量大，必须用户确认。',
       kind: 'write',
       params: {
         query: { type: 'string', description: '整合包名称或搜索关键词' },
-        source: { type: 'string', description: 'modrinth / curseforge，默认 modrinth' }
+        gameVersion: { type: 'string', description: '要安装哪个游戏版本的整合包，例如 1.20.1；留空表示该整合包的最新版' },
+        source: { type: 'string', description: 'modrinth / curseforge，留空表示两个平台一起搜' }
       },
       required: ['query'],
       run: function (args) {
         var api = _api();
         _need(api && api.searchResources && api.downloadResource, '整合包安装接口');
-        var source = args.source || 'modrinth';
-        return api.searchResources(String(args.query), 'modpack', '', '', '', 'downloads', 5, 0, source).then(function (r) {
-          var list = _pickList(r);
-          if (!list.length) throw new Error('没搜到「' + args.query + '」对应的整合包。');
-          var top = list[0];
-          var pid = top.project_id || top.projectId || top.id || top.slug;
-          if (!pid) throw new Error('搜索结果缺少 projectId，无法安装。');
-          var title = top.title || top.name || args.query;
-          return api.downloadResource('', pid, 'modpack', '', '', title, top.source || source)
-            .then(function (res) {
-              if (res && res.success === false) throw new Error(res.error || '安装失败');
-              if (typeof showModpackInstallModal === 'function' && res && res.fileName) {
-                showModpackInstallModal(res.fileName, res.sessionId || '');
-              }
-              return '已开始安装整合包「' + title + '」，下载解压完成后会在主页出现对应版本。';
-            });
-        });
+        var source = args.source || '';
+        var gv = _wantGameVersion(args.gameVersion);
+
+        // 先按指定源搜；没结果时自动换另一个源再试一次（CurseForge 上整合包很多，
+        // 只搜 Modrinth 经常会「一个都没搜到」）
+        var search = function (src) {
+          return api.searchResources(String(args.query), 'modpack', '', gv, '', 'downloads', 5, 0, src).then(_pickList);
+        };
+        var chain = source ? [source] : ['', 'curseforge', 'modrinth'];
+
+        var tryNext = function (i) {
+          if (i >= chain.length) {
+            throw new Error('没搜到「' + args.query + '」' + (gv ? '（' + gv + '）' : '') + '对应的整合包。可换个关键词，或用 search_mods 先看看结果。');
+          }
+          return search(chain[i]).then(function (list) {
+            if (!list.length) return tryNext(i + 1);
+            var top = list[0];
+            var pid = top.project_id || top.projectId || top.id || top.slug;
+            if (!pid) throw new Error('搜索结果缺少 projectId，无法安装。');
+            var title = top.title || top.name || args.query;
+            var src = top.source || chain[i] || 'curseforge';
+            return api.downloadResource('', pid, 'modpack', '', '', title, src, gv, '')
+              .then(function (res) {
+                if (res && res.success === false) throw new Error(res.error || '安装失败');
+                if (typeof showModpackInstallModal === 'function' && res && res.fileName) {
+                  showModpackInstallModal(res.fileName, res.sessionId || '');
+                }
+                return '已开始安装整合包「' + title + '」' + (gv ? '（' + gv + '）' : '') +
+                  '，来源 ' + (src === 'curseforge' ? 'CurseForge' : 'Modrinth') + '；下载解压完成后会在主页出现对应版本。';
+              });
+          });
+        };
+        return tryNext(0);
       }
     },
 
@@ -1002,9 +1120,28 @@
       return {
         pid: pid,
         title: top.title || top.name || query,
-        source: top.source || source
+        source: top.source || source,
+        loader: loader,
+        gameVersion: gameVersion
       };
     });
+  }
+
+  /** 把一个版本 id（如 1.20.1-forge-47.2.0）解析成 { gameVersion, loader } */
+  function _verParts(versionId) {
+    var ver = _versions().filter(function (v) { return v.id === versionId; })[0] || {};
+    var loader = ver.isFabric ? 'fabric' : (ver.isForge ? 'forge' : (ver.isNeoForge ? 'neoforge' : ''));
+    return { gameVersion: _mcVersionOf(versionId), loader: loader };
+  }
+
+  /** 校验一个「1.20.1」样式的 MC 版本号；不合法就抛错 */
+  function _wantGameVersion(v) {
+    var s = String(v || '').trim();
+    if (!s) return '';
+    if (!/^\d+\.\d+(\.\d+)?$/.test(s)) {
+      throw new Error('游戏版本号看起来不对：「' + s + '」。请用 1.20.1 这样的写法。');
+    }
+    return s;
   }
 
   /** 兼容不同接口的列表包装：{ hits:[...] } / { data:[...] } / [...] */
@@ -1078,7 +1215,9 @@
       select_version: function () { return '把启动栏版本切换为 ' + (args.version || '?'); },
       select_account: function () { return '切换账户为 ' + (args.account || '?'); },
       install_mod: function () { return '安装模组「' + (args.query || '?') + '」到 ' + (args.version || '当前版本'); },
-      install_modpack: function () { return '安装整合包「' + (args.query || '?') + '」'; },
+      install_modpack: function () {
+        return '安装整合包「' + (args.query || '?') + '」' + (args.gameVersion ? '（' + args.gameVersion + '）' : '');
+      },
       install_game_version: function () {
         var v = args.version || '?';
         var l = args.loader ? (' + ' + (LOADER_NAMES[String(args.loader).toLowerCase()] || args.loader) +
@@ -1103,6 +1242,9 @@
     if (name === 'list_installed_mods') return '读取模组列表';
     if (name === 'search_mods') return '搜索「' + (args.query || '?') + '」';
     if (name === 'list_loader_versions') return '查询 ' + (args.version || '?') + ' 可用的 ' + (args.loader || '?') + ' 版本';
+    if (name === 'list_resource_versions') {
+      return '查询「' + (args.query || args.projectId || '?') + '」支持的游戏版本' + (args.gameVersion ? '（筛 ' + args.gameVersion + '）' : '');
+    }
     if (name === 'list_java') return '读取 Java 列表';
     if (name === 'get_launch_settings') return '读取启动设置';
     if (name === 'read_crash_logs') return '读取崩溃日志列表';
