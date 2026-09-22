@@ -178,6 +178,98 @@
   }
 
   // ========================================================================
+  // 模组加载器（Fabric / Forge / NeoForge）辅助
+  // ========================================================================
+  // 之前 Agent 只能装「原版」，用户说「装个带 Fabric 的 1.20.1」就卡住了。
+  // 这里把加载器相关的查询与安装补齐，全部走启动器自己的安装链路：
+  //   · 已装原版 → API.installFabric / installForge / installNeoForge
+  //   · 全新安装 → versions.js::installVersionWithLoader（进下载任务、有进度）
+  // ========================================================================
+
+  var LOADER_KEYS = ['fabric', 'forge', 'neoforge'];
+  var LOADER_NAMES = { fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
+
+  /** 「1.20.1-fabric-0.15.11」→ 「1.20.1」：取 MC 原版号 */
+  function _mcVersionOf(raw) {
+    var s = String(raw || '').trim();
+    var m = s.match(/^(\d+\.\d+(?:\.\d+)?)/);
+    if (m) return m[1];
+    return s.split(/[-_ ]/)[0];
+  }
+
+  /** 已安装版本里有没有这个 MC 原版（用于决定「加装」还是「全新装」） */
+  function _hasVanilla(mc) {
+    return _versions().some(function (v) {
+      return String(v.id || '').indexOf(mc) === 0;
+    });
+  }
+
+  /** 拉取某 MC 版本可用的加载器版本列表 */
+  function _loaderVersions(api, loader, mc) {
+    if (loader === 'fabric') {
+      _need(api && api.getFabricVersions, 'Fabric 版本接口');
+      return api.getFabricVersions(mc).then(_pickList);
+    }
+    if (loader === 'forge') {
+      _need(api && api.getForgeVersions, 'Forge 版本接口');
+      return api.getForgeVersions(mc).then(_pickList);
+    }
+    if (loader === 'neoforge') {
+      return _proxy('GET', '/api/neoforge/versions', { game: mc }).then(function (r) {
+        return _pickList(r && r.versions);
+      });
+    }
+    return Promise.reject(new Error('不支持的加载器：' + loader));
+  }
+
+  /** 从加载器版本列表里挑一个：给了就按给的找，没给就取最新的稳定版 */
+  function _pickLoaderVersion(list, want, loader) {
+    var items = (list || []).map(function (x) {
+      return typeof x === 'string' ? { version: x } : (x || {});
+    }).filter(function (x) { return x.version; });
+    if (!items.length) {
+      throw new Error('这个游戏版本没有可用的 ' + (LOADER_NAMES[loader] || loader) + ' 版本（可能太老或太新）。');
+    }
+    if (want) {
+      var low = String(want).toLowerCase();
+      var hit = items.filter(function (x) { return String(x.version).toLowerCase() === low; })[0] ||
+                items.filter(function (x) { return String(x.version).toLowerCase().indexOf(low) === 0; })[0];
+      if (!hit) {
+        throw new Error((LOADER_NAMES[loader] || loader) + ' 没有版本「' + want + '」。可用的前几个：' +
+          items.slice(0, 8).map(function (x) { return x.version; }).join('、'));
+      }
+      return hit;
+    }
+    // 列表一般按新→旧排，优先挑标记为稳定版的第一个
+    var stable = items.filter(function (x) { return x.stable === true || x.type === 'release' || x.releaseType === 'release'; });
+    return (stable.length ? stable : items)[0];
+  }
+
+  /** Fabric API 的推荐版本（装 Fabric 时一并装上，否则绝大多数模组跑不起来） */
+  function _fabricApiInfo(api, mc) {
+    if (!api || typeof api.getFabricApiVersions !== 'function') return Promise.resolve(null);
+    return api.getFabricApiVersions(mc).then(function (r) {
+      var list = (r && r.versions) || [];
+      if (!list.length) return null;
+      var rec = r && r.recommended;
+      var hit = list.filter(function (x) { return (x.versionId || x.version) === rec; })[0] || list[0];
+      return {
+        id: hit.versionId || hit.version || '',
+        url: hit.url || '',
+        filename: hit.filename || ''
+      };
+    }).catch(function () { return null; });
+  }
+
+  /** 装完加载器后刷新版本列表（全局 loadVersions 存在就调，失败不影响结果） */
+  function _reloadVersions() {
+    try {
+      if (typeof loadVersions === 'function') return Promise.resolve(loadVersions(true)).catch(function () {});
+    } catch (e) {}
+    return Promise.resolve();
+  }
+
+  // ========================================================================
   // 工具定义
   // ========================================================================
   var TOOLS = [
@@ -292,6 +384,41 @@
         _need(api && api.searchResources, '资源搜索接口');
         return api.searchResources(q, type, args.loader || '', args.gameVersion || '', '', 'downloads', limit, 0, args.source || '')
           .then(function (r) { return _fmtSearch(r, limit); });
+      }
+    },
+
+    {
+      name: 'list_loader_versions',
+      desc: '查询某个游戏版本可用的模组加载器版本（Fabric / Forge / NeoForge）。用户想指定加载器版本，或你想确认某个版本能不能装加载器时用。',
+      kind: 'read',
+      params: {
+        loader: { type: 'string', description: 'fabric / forge / neoforge', enum: ['fabric', 'forge', 'neoforge'] },
+        version: { type: 'string', description: '游戏版本号，例如 1.20.1' }
+      },
+      required: ['loader', 'version'],
+      run: function (args) {
+        var api = _api();
+        var loader = String(_require(args, 'loader', 'loader')).toLowerCase();
+        if (LOADER_KEYS.indexOf(loader) === -1) {
+          throw new Error('只支持 fabric / forge / neoforge，收到的是 ' + args.loader);
+        }
+        var mc = _mcVersionOf(_require(args, 'version', 'version'));
+        return _loaderVersions(api, loader, mc).then(function (list) {
+          var items = (list || []).map(function (x) { return typeof x === 'string' ? { version: x } : (x || {}); });
+          if (!items.length) return '游戏版本 ' + mc + ' 没有可用的 ' + (LOADER_NAMES[loader] || loader) + ' 版本。';
+          return _ok({
+            gameVersion: mc,
+            loader: loader,
+            count: items.length,
+            // 列表本身已是新→旧，直接取前若干个即可
+            versions: items.slice(0, 15).map(function (x) {
+              return {
+                version: x.version,
+                stable: !!(x.stable || x.type === 'release' || x.releaseType === 'release')
+              };
+            })
+          });
+        });
       }
     },
 
@@ -608,10 +735,13 @@
 
     {
       name: 'install_game_version',
-      desc: '安装一个全新的原版游戏版本（只装原版，不含加载器）。必须用户确认。',
+      desc: '安装一个游戏版本：可以只装原版，也可以一步装上加载器（Fabric / Forge / NeoForge）。要装带加载器的版本时就传 loader，不要让用户自己先装原版再装加载器。必须用户确认。',
       kind: 'write',
       params: {
         version: { type: 'string', description: '要安装的游戏版本号，例如 1.20.1' },
+        loader: { type: 'string', description: '要一起装的加载器：fabric / forge / neoforge；留空表示只装原版', enum: ['fabric', 'forge', 'neoforge'] },
+        loaderVersion: { type: 'string', description: '加载器版本，留空表示用最新的稳定版' },
+        fabricApi: { type: 'boolean', description: '装 Fabric 时是否一并装 Fabric API，默认 true（绝大多数模组都需要）' },
         url: { type: 'string', description: '可选的版本 JSON 下载地址；一般不用传，助手会自动从远程清单里查。' }
       },
       required: ['version'],
@@ -619,27 +749,125 @@
         var api = _api();
         _need(api && api.installVersion, '版本安装接口');
         var v = String(_require(args, 'version', 'version')).trim();
+        var mc = _mcVersionOf(v);
         var givenUrl = String((args && args.url) || '').trim();
+        var loader = String((args && args.loader) || '').toLowerCase();
+
+        if (loader && LOADER_KEYS.indexOf(loader) === -1) {
+          throw new Error('只支持 fabric / forge / neoforge 三种加载器，收到的是 ' + args.loader);
+        }
 
         // 后端 /api/install-start 要求 versionId 与 url 同时非空。
         // Agent 通常只给版本号，所以这里自动从远程清单解析出该版本的 json 地址。
         return _resolveVersionUrl(api, v, givenUrl).then(function (resolved) {
-          // 关键：必须走「版本管理页」那条安装链路（全局 installVersion），
-          // 它内部会 showInstallModal + pollInstallProgress：
-          //   · 在下载列表里建一条任务（图标/进度/取消都能用）
-          //   · 轮询安装进度并写回任务
-          // 之前直接调 api.installVersion 只会在后台静默开一个会话，
-          // 用户既看不到进度也没法取消 —— 就是「安装没进下载任务」的原因。
-          var start = (typeof window.installVersion === 'function') ? window.installVersion : null;
-          if (start) {
-            return Promise.resolve(start(resolved.url, resolved.id, null, 'mojang', '')).then(function () {
-              return '已开始安装原版 ' + v + '，进度已加入右下角的「下载」任务列表。';
-            });
+          if (!loader) {
+            // 关键：必须走「版本管理页」那条安装链路（全局 installVersion），
+            // 它内部会 showInstallModal + pollInstallProgress：
+            //   · 在下载列表里建一条任务（图标/进度/取消都能用）
+            //   · 轮询安装进度并写回任务
+            // 之前直接调 api.installVersion 只会在后台静默开一个会话，
+            // 用户既看不到进度也没法取消 —— 就是「安装没进下载任务」的原因。
+            var start = (typeof window.installVersion === 'function') ? window.installVersion : null;
+            if (start) {
+              return Promise.resolve(start(resolved.url, resolved.id, null, 'mojang', '')).then(function () {
+                return '已开始安装原版 ' + v + '，进度已加入右下角的「下载」任务列表。';
+              });
+            }
+            return api.installVersion(resolved.url, resolved.id, null, 'mojang', '');
           }
-          return api.installVersion(resolved.url, resolved.id, null, 'mojang', '');
+
+          // 带加载器：先定加载器版本，再走 installVersionWithLoader（同样进下载任务）
+          return _loaderVersions(api, loader, mc).then(function (list) {
+            var picked = _pickLoaderVersion(list, args.loaderVersion, loader);
+            var lv = picked.version;
+            var withApi = loader === 'fabric' && args.fabricApi !== false;
+            return (withApi ? _fabricApiInfo(api, mc) : Promise.resolve(null)).then(function (apiInfo) {
+              var loaderInfo = {
+                type: loader,
+                version: lv,
+                fabricApiId: apiInfo ? apiInfo.id : '',
+                fabricApiUrl: apiInfo ? apiInfo.url : '',
+                fabricApiFilename: apiInfo ? apiInfo.filename : ''
+              };
+              var suffix = LOADER_NAMES[loader];
+              var name = mc + '-' + suffix + '-' + lv;
+              var startLoader = (typeof window.installVersionWithLoader === 'function') ? window.installVersionWithLoader : null;
+              if (startLoader) {
+                return Promise.resolve(startLoader(resolved.url, resolved.id, loaderInfo, 'mojang', name))
+                  .then(function () { return loaderInfo; });
+              }
+              return api.installVersion(resolved.url, resolved.id, loaderInfo, 'mojang', name)
+                .then(function (r) {
+                  if (r && r.success === false) throw new Error(r.error || '安装失败');
+                  return loaderInfo;
+                });
+            }).then(function (loaderInfo) {
+              return '已开始安装 ' + mc + ' + ' + LOADER_NAMES[loader] + ' ' + loaderInfo.version +
+                '（版本名：' + mc + '-' + LOADER_NAMES[loader] + '-' + loaderInfo.version +
+                (loaderInfo.fabricApiId ? '，含 Fabric API' : '') +
+                '），进度已加入右下角的「下载」任务列表。';
+            });
+          });
         }).then(function (res) {
           if (res && res.success === false) throw new Error(res.error || '安装失败');
-          return '已开始安装原版 ' + v + '，进度已加入右下角的「下载」任务列表。';
+          return res;
+        });
+      }
+    },
+
+    {
+      name: 'install_loader',
+      desc: '给**已经装好的**游戏版本加装模组加载器（Fabric / Forge / NeoForge）。用户说「给 1.20.1 装个 Fabric」时用；如果这个版本还没装过，改用 install_game_version 一步装「原版+加载器」。必须用户确认。',
+      kind: 'write',
+      params: {
+        version: { type: 'string', description: '已安装的游戏版本 id 或版本号，例如 1.20.1' },
+        loader: { type: 'string', description: 'fabric / forge / neoforge', enum: ['fabric', 'forge', 'neoforge'] },
+        loaderVersion: { type: 'string', description: '加载器版本，留空表示用最新的稳定版' },
+        fabricApi: { type: 'boolean', description: '装 Fabric 时是否一并装 Fabric API，默认 true' }
+      },
+      required: ['version', 'loader'],
+      run: function (args) {
+        var api = _api();
+        _need(api && api.installFabric && api.installForge && api.installNeoForge, '加载器安装接口');
+        var loader = String(_require(args, 'loader', 'loader')).toLowerCase();
+        if (LOADER_KEYS.indexOf(loader) === -1) {
+          throw new Error('只支持 fabric / forge / neoforge 三种加载器，收到的是 ' + args.loader);
+        }
+        var mc = _mcVersionOf(_require(args, 'version', 'version'));
+        if (!_hasVanilla(mc)) {
+          throw new Error('本机还没有装 ' + mc + ' 这个原版。请改用 install_game_version 直接装「' + mc + ' + ' + (LOADER_NAMES[loader] || loader) + '」（一步到位，不用分两次）。');
+        }
+
+        return _loaderVersions(api, loader, mc).then(function (list) {
+          var picked = _pickLoaderVersion(list, args.loaderVersion, loader);
+          var lv = picked.version;
+          var p;
+          if (loader === 'fabric') p = api.installFabric(mc, lv);
+          else if (loader === 'forge') p = api.installForge(mc, lv);
+          else p = api.installNeoForge(mc, lv);
+
+          return p.then(function (res) {
+            if (!res || res.success === false) throw new Error((res && res.error) || '加载器安装失败');
+            var installedId = res.versionId ||
+              (loader === 'fabric' ? ('fabric-loader-' + lv + '-' + mc) : (mc + '-' + loader + '-' + lv));
+
+            var withApi = loader === 'fabric' && args.fabricApi !== false;
+            if (!withApi) return { id: installedId, apiOk: false, apiSkipped: true };
+            return _fabricApiInfo(api, mc).then(function (info) {
+              if (!info || !info.id) return { id: installedId, apiOk: false };
+              return api.installFabricApi(mc, info.id, installedId, info.url || '', info.filename || '')
+                .then(function (r) { return { id: installedId, apiOk: !!(r && r.success !== false) }; })
+                .catch(function () { return { id: installedId, apiOk: false }; });
+            });
+          }).then(function (out) {
+            return _reloadVersions().then(function () {
+              var tail = loader === 'fabric'
+                ? (out.apiSkipped ? '（按你的要求没装 Fabric API）' : (out.apiOk ? '，Fabric API 已一并装好' : '，但 Fabric API 没装上（多数模组需要它，可以让我补装）'))
+                : '';
+              return '已给 ' + mc + ' 装上 ' + (LOADER_NAMES[loader] || loader) + ' ' + lv +
+                '，新版本 id：' + out.id + tail + '。';
+            });
+          });
         });
       }
     },
@@ -851,7 +1079,15 @@
       select_account: function () { return '切换账户为 ' + (args.account || '?'); },
       install_mod: function () { return '安装模组「' + (args.query || '?') + '」到 ' + (args.version || '当前版本'); },
       install_modpack: function () { return '安装整合包「' + (args.query || '?') + '」'; },
-      install_game_version: function () { return '安装原版 ' + (args.version || '?'); },
+      install_game_version: function () {
+        var v = args.version || '?';
+        var l = args.loader ? (' + ' + (LOADER_NAMES[String(args.loader).toLowerCase()] || args.loader) +
+          (args.loaderVersion ? ' ' + args.loaderVersion : '')) : '';
+        return '安装 ' + v + l;
+      },
+      install_loader: function () {
+        return '给 ' + (args.version || '?') + ' 加装 ' + (LOADER_NAMES[String(args.loader || '').toLowerCase()] || (args.loader || '?'));
+      },
       toggle_mod: function () { return (args.enabled ? '启用' : '禁用') + '模组「' + (args.name || '?') + '」'; },
       install_java: function () { return '下载安装 Java ' + (args.majorVersion || '?'); },
       set_current_java: function () { return '把 Java 切换为 ' + (args.java || '?'); },
@@ -866,6 +1102,7 @@
     if (name === 'list_versions') return '读取已安装版本列表';
     if (name === 'list_installed_mods') return '读取模组列表';
     if (name === 'search_mods') return '搜索「' + (args.query || '?') + '」';
+    if (name === 'list_loader_versions') return '查询 ' + (args.version || '?') + ' 可用的 ' + (args.loader || '?') + ' 版本';
     if (name === 'list_java') return '读取 Java 列表';
     if (name === 'get_launch_settings') return '读取启动设置';
     if (name === 'read_crash_logs') return '读取崩溃日志列表';
