@@ -240,15 +240,17 @@
                 result = await tauriCore.invoke('api_proxy', {
                     method: 'POST',
                     path: '/api/modpack/import',
-                    body: { filePath: filePath, customName: customName }
+                    // cancelToken 与下载任务 id 一致：在下载页点「取消」时，
+                    // 后端 /api/modpack/cancel 能凭它中断这次导入。
+                    body: { filePath: filePath, customName: customName, cancelToken: sessionId }
                 });
             } else if (window.electronAPI && window.electronAPI.importModpack) {
-                result = await window.electronAPI.importModpack(filePath, customName);
+                result = await window.electronAPI.importModpack(filePath, customName, sessionId);
             } else {
                 const resp = await fetch('/api/modpack/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filePath, customName })
+                    body: JSON.stringify({ filePath, customName, cancelToken: sessionId })
                 });
                 result = await resp.json();
             }
