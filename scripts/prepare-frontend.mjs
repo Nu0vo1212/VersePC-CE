@@ -2,7 +2,7 @@
 // 把 verse框架替换项目/frontend 下的静态资源复制到 frontend-tauri 目录，排除 node_modules
 // 使用 robocopy 避免 Node.js cpSync 在 Junction + 中文路径下的 bug
 import { execSync } from 'node:child_process';
-import { rmSync, existsSync, mkdirSync, copyFileSync, statSync, readdirSync, cpSync } from 'node:fs';
+import { rmSync, existsSync, mkdirSync, copyFileSync, statSync, readdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
@@ -105,6 +105,28 @@ for (const res of resources) {
     }
   }
 }
+
+// 启动画面（splash）右下角那个版本号：原来在 index.html 里写死成 v1.3.3，
+// 每次发版都得记得手动改一次、漏改就显示错版本。这里统一按 package.json 同步 ——
+// 以后改版本只需改 package.json / tauri.conf.json / Cargo.toml 三处。
+function syncSplashVersion() {
+  const pkgPath = join(projectRoot, 'package.json');
+  const htmlPath = join(frontendDir, 'index.html');
+  if (!existsSync(pkgPath) || !existsSync(htmlPath)) return;
+  try {
+    const ver = JSON.parse(readFileSync(pkgPath, 'utf8')).version;
+    if (!ver) return;
+    const html = readFileSync(htmlPath, 'utf8');
+    const next = html.replace(/(id="splash-version"[^>]*>\s*v)[\d.]+/, `$1${ver}`);
+    if (next !== html) {
+      writeFileSync(htmlPath, next);
+      console.log(`[prepare-frontend] 启动画面版本已同步: v${ver}`);
+    }
+  } catch (e) {
+    console.warn('[prepare-frontend] 启动画面版本同步失败:', e.message);
+  }
+}
+syncSplashVersion();
 
 // 确保 Vue 运行时存在于 frontend-tauri/js/vue.global.prod.js
 const vueSrc = join(projectRoot, 'node_modules', 'vue', 'dist', 'vue.global.prod.js');
