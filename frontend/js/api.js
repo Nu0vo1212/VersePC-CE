@@ -585,8 +585,9 @@ const API = {
         apiGet('/api/resources/search', { query, type, loader, version, category, sort, limit, offset, source }),
     getResourceVersions: (projectId, source = 'modrinth', loader = '', gameVersion = '') =>
         apiGet('/api/resources/versions', { projectId, source, loader, gameVersion }),
-    downloadResource: (versionId, projectId, projectType = 'mod', targetVersionId = '', savePath = '', customName = '', source = 'modrinth') =>
-        apiPost('/api/resources/download', { versionId, projectId, projectType, targetVersionId, savePath, customName, source }, 120000),
+    // gameVersion / loader：明确指定要下载的 MC 版本与加载器（不传则用 targetVersionId / 最新版）
+    downloadResource: (versionId, projectId, projectType = 'mod', targetVersionId = '', savePath = '', customName = '', source = 'modrinth', gameVersion = '', loader = '') =>
+        apiPost('/api/resources/download', { versionId, projectId, projectType, targetVersionId, savePath, customName, source, gameVersion, loader }, 120000),
 
     // === EasyTier 虚拟组网 ===
     easytierStatus: () => apiGet('/api/easytier/status'),
