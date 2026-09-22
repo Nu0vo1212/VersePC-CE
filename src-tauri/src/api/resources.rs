@@ -1261,6 +1261,165 @@ async fn handle_versions_curseforge(project_id: &str) -> ApiResult {
     ApiResult::ok(json!({ "versions": versions }))
 }
 
+/// 从版本 id / 版本名里取出 MC 版本号：
+///   "1.20.1" → "1.20.1"
+///   "1.20.1-forge-47.2.0" → "1.20.1"
+///   "fabric-loader-0.15.11-1.20.1" → "1.20.1"（注意别把加载器版本当成 MC 版本）
+///   "1.21-pre1" → "1.21"
+/// 取不到（快照名等）返回空串，表示不做版本过滤。
+fn extract_mc_version(s: &str) -> String {
+    let t = s.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    const LOADER_WORDS: [&str; 6] = ["fabric", "loader", "forge", "neoforge", "quilt", "optifine"];
+    let segs: Vec<&str> = t
+        .split(|c: char| c == '-' || c == '_' || c == ' ' || c == '/')
+        .map(|x| x.trim())
+        .filter(|x| !x.is_empty())
+        .collect();
+    let is_version = |x: &str| -> bool {
+        let mut dots = 0;
+        let mut digits = 0;
+        for c in x.chars() {
+            if c.is_ascii_digit() {
+                digits += 1;
+            } else if c == '.' {
+                dots += 1;
+            } else {
+                return false;
+            }
+        }
+        digits > 0 && dots >= 1 && dots <= 2
+    };
+    // 1) 主流 MC 版本号是 1.x，优先按它取
+    if let Some(v) = segs.iter().find(|x| is_version(x) && x.starts_with("1.")) {
+        return v.to_string();
+    }
+    // 2) 其它数字版本号：紧跟在加载器名后面的（fabric-loader-0.15.11）要跳过
+    for (i, x) in segs.iter().enumerate() {
+        if !is_version(x) {
+            continue;
+        }
+        let prev = if i > 0 {
+            segs[i - 1].to_ascii_lowercase()
+        } else {
+            String::new()
+        };
+        if LOADER_WORDS.contains(&prev.as_str()) {
+            continue;
+        }
+        return x.to_string();
+    }
+    String::new()
+}
+
+/// 从 CurseForge 的文件列表里挑一个「最该装」的文件
+///
+/// 排序优先级：releaseType=1（Release）> Beta > Alpha，同档按 fileDate 倒序。
+/// 只做纯粹的挑选，不关心调用场景。
+fn pick_curseforge_file(files: &[Value]) -> Option<&Value> {
+    fn rank(f: &Value) -> u64 {
+        match f.get("releaseType").and_then(|r| r.as_u64()).unwrap_or(1) {
+            1 => 2,
+            2 => 1,
+            _ => 0,
+        }
+    }
+    fn date(f: &Value) -> &str {
+        f.get("fileDate").and_then(|d| d.as_str()).unwrap_or("")
+    }
+    let mut best: Option<&Value> = None;
+    for f in files.iter() {
+        // 只考虑有文件名的条目（下载地址可能为 null，但会按 fileId 拼 CDN）
+        if f.get("fileName").and_then(|n| n.as_str()).unwrap_or("").is_empty() {
+            continue;
+        }
+        match best {
+            None => best = Some(f),
+            Some(b) => {
+                if (rank(f), date(f)) > (rank(b), date(b)) {
+                    best = Some(f);
+                }
+            }
+        }
+    }
+    best
+}
+
+/// CurseForge：未指定 fileId 时，自动解析出一个可下载的文件
+///
+/// 挑法（同级里再按 Release / 文件时间取最优）：
+///   · 指定了 MC 版本 → 只在该版本里挑（先带加载器，再不带加载器）；
+///     挑不到就明确报错，绝不悄悄换成别的版本的文件。
+///   · 没指定版本 → 先按加载器挑，再全量兜底。
+async fn resolve_curseforge_file(
+    project_id: &str,
+    version_filter: &str,
+    loader: &str,
+    headers: &reqwest::header::HeaderMap,
+) -> Result<Value, String> {
+    async fn fetch_files(
+        project_id: &str,
+        game_version: &str,
+        loader_id: Option<&str>,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Result<Vec<Value>, String> {
+        let mut url = format!("{}/mods/{}/files?pageSize=50", CURSEFORGE_API, project_id);
+        if !game_version.is_empty() {
+            url.push_str(&format!("&gameVersion={}", urlencoding::encode(game_version)));
+        }
+        if let Some(id) = loader_id {
+            url.push_str(&format!("&modLoaderType={}", id));
+        }
+        let result = cached_fetch_json(url, 60000, Some(headers)).await?;
+        Ok(result
+            .get("data")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    let loader_id = cf_loader_type_id(&loader.to_lowercase());
+    let mut combos: Vec<(String, Option<&str>)> = Vec::new();
+    if version_filter.is_empty() {
+        if let Some(id) = loader_id {
+            combos.push((String::new(), Some(id)));
+        }
+        combos.push((String::new(), None));
+    } else {
+        if let Some(id) = loader_id {
+            combos.push((version_filter.to_string(), Some(id)));
+        }
+        combos.push((version_filter.to_string(), None));
+    }
+
+    let mut had_files = false;
+    for (game_version, ld) in combos {
+        let files = fetch_files(project_id, &game_version, ld, headers).await?;
+        if files.is_empty() {
+            continue;
+        }
+        had_files = true;
+        if let Some(picked) = pick_curseforge_file(&files) {
+            eprintln!(
+                "[resources][curseforge] 自动选文件: gameVersion={} loader={:?} → {}",
+                game_version,
+                ld,
+                picked.get("fileName").and_then(|n| n.as_str()).unwrap_or("")
+            );
+            return Ok(picked.clone());
+        }
+    }
+    if had_files {
+        Err("文件列表里没有带文件名的条目".to_string())
+    } else if !version_filter.is_empty() {
+        Err(format!("该资源没有适配游戏版本 {} 的文件", version_filter))
+    } else {
+        Err("该资源没有可用文件".to_string())
+    }
+}
+
 /// POST /api/resources/download — 下载资源
 ///
 /// 请求体：
@@ -1270,9 +1429,12 @@ async fn handle_versions_curseforge(project_id: &str) -> ApiResult {
 ///   - savePath: 自定义保存路径（覆盖默认）
 ///   - customName: 自定义名称（仅 modpack 用作版本 ID）
 ///   - targetVersionId: 目标 MC 版本 ID（不传则用 selectedVersion）
+///   - gameVersion: 明确指定要下载的 MC 版本（如 "1.20.1"，整合包按此挑文件，优先级最高）
 ///   - source: 数据源（modrinth/curseforge，默认 modrinth）
 async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
-    let version_id = body
+    // 注意：CurseForge 分支在 versionId 为空时会自动解析出一个合适的 fileId，
+    // 因此这里是 mut（AI 助手 / 详情页只给了 projectId 的情况）。
+    let mut version_id = body
         .as_ref()
         .and_then(|b| b.get("versionId"))
         .and_then(|v| v.as_str())
@@ -1314,6 +1476,22 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // 用户/AI 明确指定的游戏版本（整合包也支持），用来挑选对应版本的文件
+    let game_version_hint = body
+        .as_ref()
+        .and_then(|b| b.get("gameVersion"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    // 目标加载器（mod 用）：1.20.1 + fabric 这类组合能精准挑到对应构建
+    let loader = body
+        .as_ref()
+        .and_then(|b| b.get("loader"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
 
     if version_id.is_empty() && project_id.is_empty() {
         return ApiResult::err(400, "Missing versionId or projectId");
@@ -1321,7 +1499,7 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
 
     let settings = storage::load_settings();
 
-    // 解析目标 MC 版本（modpack 不需要）
+    // 解析目标 MC 版本（modpack 不需要落目录，但要按版本挑文件）
     if target_version_id.is_empty() && project_type != "modpack" {
         target_version_id = settings
             .get("selectedVersion")
@@ -1329,6 +1507,14 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
             .unwrap_or("")
             .to_string();
     }
+
+    // 挑文件时用的 MC 版本：显式 gameVersion > 由目标版本 id 归一化出的 MC 版本号
+    // （target_version_id 可能是 "1.20.1-forge-47.2.0" 这种完整 id，必须取前面的版本号）
+    let version_filter = if !game_version_hint.is_empty() {
+        extract_mc_version(&game_version_hint)
+    } else {
+        extract_mc_version(&target_version_id)
+    };
 
     // 决定目标目录
     let dest_dir = if !save_path.is_empty() {
@@ -1368,8 +1554,35 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
         }
         cf_headers.insert("Accept", reqwest::header::HeaderValue::from_static("application/json"));
 
+        // 没给 fileId（AI 助手、详情页「最新版」等场景只给了 projectId）：
+        // 自动去 CurseForge 挑一个最合适的文件，别再直接报错。
+        // 挑选规则：按用户指定的 MC 版本（+加载器）过滤，再优先 Release，其次文件时间最新。
         if version_id.is_empty() {
-            return ApiResult::err(400, "CurseForge 下载需要指定版本文件 ID");
+            match resolve_curseforge_file(&project_id, &version_filter, &loader, &cf_headers).await {
+                Ok(file) => {
+                    version_id = file
+                        .get("id")
+                        .map(|i| {
+                            i.as_str()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| i.to_string())
+                        })
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[resources][curseforge] 未指定 fileId，自动选用文件: {} → {} ({})",
+                        project_id,
+                        version_id,
+                        file.get("fileName").and_then(|n| n.as_str()).unwrap_or("")
+                    );
+                }
+                Err(e) => {
+                    return ApiResult::err(502, &format!("CurseForge 自动获取最新文件失败: {}", e));
+                }
+            }
+        }
+
+        if version_id.is_empty() {
+            return ApiResult::err(400, "CurseForge 该项目下没有可下载的文件（可能全部被作者隐藏）");
         }
 
         let file_detail_url = format!("{}/mods/{}/files/{}", CURSEFORGE_API, project_id, version_id);
@@ -1458,15 +1671,55 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
                 Err(_) => Value::Null,
             }
         } else {
-            let url = format!("{}/project/{}/version?limit=1", MODRINTH_API, project_id);
-            match fetch_json_with_mirror(&url, None).await {
-                Ok(arr) => arr.as_array().and_then(|a| a.first()).cloned().unwrap_or(Value::Null),
-                Err(_) => Value::Null,
+            // 用户指定了 MC 版本 / 加载器 → 依次尝试更精确的条件，最后退回最新版。
+            // 保证「说了版本就装对应版本」，同时不至于因为标注不全而彻底装不了。
+            let gv = if version_filter.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "&game_versions={}",
+                    urlencoding::encode(&format!("[\"{}\"]", version_filter))
+                )
+            };
+            let ld = if loader.is_empty() {
+                String::new()
+            } else {
+                format!("&loaders={}", urlencoding::encode(&format!("[\"{}\"]", loader)))
+            };
+            let base = format!("{}/project/{}/version?limit=1", MODRINTH_API, project_id);
+            let mut urls: Vec<String> = Vec::new();
+            if version_filter.is_empty() {
+                if !ld.is_empty() {
+                    urls.push(format!("{}{}", base, ld));
+                }
+                urls.push(base);
+            } else {
+                if !ld.is_empty() {
+                    urls.push(format!("{}{}{}", base, gv, ld));
+                }
+                urls.push(format!("{}{}", base, gv));
             }
+            let mut picked = Value::Null;
+            for u in urls {
+                if let Ok(arr) = fetch_json_with_mirror(&u, None).await {
+                    if let Some(first) = arr.as_array().and_then(|a| a.first()).cloned() {
+                        picked = first;
+                        break;
+                    }
+                }
+            }
+            picked
         };
 
         if version_data.is_null() {
-            return ApiResult::err(502, "未找到版本信息，请检查网络连接或稍后重试");
+            return ApiResult::err(
+                502,
+                &if version_filter.is_empty() {
+                    "未找到版本信息，请检查网络连接或稍后重试".to_string()
+                } else {
+                    format!("该资源没有适配游戏版本 {} 的文件", version_filter)
+                },
+            );
         }
 
         let project_info: Value = if project_type == "modpack" {
@@ -1525,21 +1778,33 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
     let dest_path = dest_dir.join(&final_name);
 
     // 解析 modpack 元数据
+    // CurseForge 的 gameVersions 混有 "Client"/"Server" 和加载器名，
+    // 这里只取第一个形如版本号（1.20.1 / 1.21）的项，避免把 "Client" 当版本号存进版本元数据。
     let mc_version = if project_type == "modpack" {
         version_data
             .get("game_versions")
             .and_then(|g| g.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .find(|s| {
+                        s.starts_with(|c: char| c.is_ascii_digit())
+                            && !s.to_lowercase().contains("snapshot")
+                    })
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .unwrap_or_default()
     } else {
         String::new()
     };
     let pack_name = if project_type == "modpack" {
+        // Modrinth 项目用 title，CurseForge 项目用 name（拿不到就退回 id）
         project_info
             .get("title")
             .and_then(|t| t.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| project_info.get("name").and_then(|t| t.as_str()).filter(|s| !s.is_empty()))
             .unwrap_or(&project_id)
             .to_string()
     } else {
@@ -1732,7 +1997,20 @@ async fn handle_download(app: &AppHandle, body: &Option<Value>) -> ApiResult {
                             .and_then(|e| e.as_str())
                             .unwrap_or("未知错误")
                             .to_string();
+                        // 导入期间被用户取消：状态必须是「已取消」而不是「导入失败」，
+                        // 否则前端卡片会显示失败原因（"已取消"当错误处理还行）但也说明
+                        // 取消确实生效了；更重要的是别把已取消的会话标成完成。
+                        let was_cancelled = resources_session::is_cancelled(&cancel_flag);
                         resources_session::update_session(&app_handle, &session_id_for_task, |s| {
+                            if was_cancelled {
+                                s.status = resources_session::ResourceStage::Cancelled;
+                                s.phase = "cancelled".to_string();
+                                s.message = "已取消".to_string();
+                                if !s.files.is_empty() {
+                                    s.files[0].status = "cancelled".to_string();
+                                }
+                                return;
+                            }
                             s.status = resources_session::ResourceStage::Failed;
                             s.progress = 100;
                             s.message = format!("整合包导入失败: {}", err);
@@ -1834,7 +2112,15 @@ fn handle_download_cancel(body: &Option<Value>) -> ApiResult {
         return ApiResult::err(400, "Missing sessionId");
     }
 
-    if resources_session::cancel_session(session_id) {
+    // 整合包进入「导入」阶段后，下载已经结束，此时只有 import_modpack 内部的
+    // abort 标志能真正中断它（它拿到的 cancel_token 就是这个 session_id）。
+    // 少了这一步，导入阶段点取消等于没点 —— 前端会一直看到进度在跑。
+    let aborted_import = crate::modpack::cancel_modpack_abort(session_id);
+    if aborted_import {
+        eprintln!("[resources] 已请求取消整合包导入: {}", session_id);
+    }
+
+    if resources_session::cancel_session(session_id) || aborted_import {
         ApiResult::ok(json!({ "success": true }))
     } else {
         ApiResult::err(404, "会话不存在或已过期")
@@ -1889,5 +2175,48 @@ fn resolve_version_mods_dir(settings: &Value, version_id: &str) -> Option<PathBu
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.clone());
         Some(game_dir.join("mods"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_mc_version_from_ids() {
+        assert_eq!(extract_mc_version("1.20.1"), "1.20.1");
+        assert_eq!(extract_mc_version("1.20.1-forge-47.2.0"), "1.20.1");
+        assert_eq!(extract_mc_version("1.20.1_fabric"), "1.20.1");
+        assert_eq!(extract_mc_version("1.21"), "1.21");
+        assert_eq!(extract_mc_version("1.21-pre1"), "1.21");
+        assert_eq!(extract_mc_version("1.20.1 Fabric"), "1.20.1");
+        // 加载器自带的版本号不能被当成 MC 版本
+        assert_eq!(extract_mc_version("fabric-loader-0.15.11-1.20.1"), "1.20.1");
+        assert_eq!(extract_mc_version("quilt-loader-0.20.0-1.20.1"), "1.20.1");
+        assert_eq!(extract_mc_version("1.20.4-neoforge-20.4.209"), "1.20.4");
+        // 快照 / 空值一律返回空串（表示不做版本过滤）
+        assert_eq!(extract_mc_version(""), "");
+        assert_eq!(extract_mc_version("24w14a"), "");
+        assert_eq!(extract_mc_version("forge-47.2.0"), "");
+    }
+
+    #[test]
+    fn pick_prefers_release_then_newest() {
+        let files = vec![
+            json!({ "id": 1, "fileName": "a.jar", "releaseType": 2, "fileDate": "2026-05-01T00:00:00Z" }),
+            json!({ "id": 2, "fileName": "b.jar", "releaseType": 1, "fileDate": "2026-01-01T00:00:00Z" }),
+            json!({ "id": 3, "fileName": "c.jar", "releaseType": 1, "fileDate": "2026-04-01T00:00:00Z" }),
+        ];
+        let picked = pick_curseforge_file(&files).expect("应能挑出文件");
+        assert_eq!(picked.get("id").and_then(|i| i.as_u64()), Some(3));
+
+        // 没有文件名（作者隐藏了下载）的条目要跳过
+        let blocked = vec![
+            json!({ "id": 9, "fileName": "", "releaseType": 1, "fileDate": "2026-06-01T00:00:00Z" }),
+            json!({ "id": 8, "fileName": "ok.jar", "releaseType": 3, "fileDate": "2026-01-01T00:00:00Z" }),
+        ];
+        let picked2 = pick_curseforge_file(&blocked).expect("应跳过空文件名");
+        assert_eq!(picked2.get("id").and_then(|i| i.as_u64()), Some(8));
+        assert!(pick_curseforge_file(&[]).is_none());
     }
 }
