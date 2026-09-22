@@ -116,7 +116,8 @@ pub fn handle(method: &str, path: &str, params: &Option<Value>, body: &Option<Va
         "GET /api/status" => Some(ApiResult::ok(json!({
             "running": true,
             "downloadEngine": "tauri-native",
-            "version": "1.3.3-tauri"
+            // 跟着 Cargo.toml 的 version 走，别再硬编码（原来写死 1.3.3，和真实版本脱节）
+            "version": format!("{}-tauri", env!("CARGO_PKG_VERSION"))
         }))),
 
         "POST /api/jvm/preheat" => Some(handle_jvm_preheat(body)),
