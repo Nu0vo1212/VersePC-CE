@@ -1,16 +1,19 @@
 /**
  * rose-loader.js
- * 把页面中的 .spinner / .spinner-sm / .modal-spinner 替换为 Rose Curve 加载动画，
- * 完整还原 math-curve-loaders 的 Rose Curve 源码效果：
+ * 把页面中的 .spinner / .spinner-sm / .modal-spinner 替换为星形曲线加载动画，
+ * 沿用 math-curve-loaders 的那套观感：
  *   - 路径随 "detailScale" 呼吸变化（0.52 ~ 1.0）
  *   - 粒子沿曲线运动并带拖影（trail）
  *   - 整体缓慢旋转
+ *
+ * 形状：正星形多边形 {n/2} —— n 个尖角、两个错位叠加的正多边形。
+ *   starPoints = 6 → 六芒星（两个等边三角形叠加）；改成 5 就是五角星，7 就是七芒星。
  * 通过 MutationObserver 自动生效，无需改动现有 HTML。
  */
 (function () {
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
-  // 与源码一致的配置
+  // 与源码一致的配置（曲线从玫瑰线换成了星形，其余节奏参数原样保留）
   var CONFIG = {
     rotate: true,
     particleCount: 86,
@@ -19,23 +22,43 @@
     rotationDurationMs: 28000,
     pulseDurationMs: 4600,
     strokeWidth: 4.5,
-    roseA: 9.2,
-    roseABoost: 0.6,
-    roseBreathBase: 0.72,
-    roseBreathBoost: 0.28,
-    roseK: 5,
-    roseScale: 3.25
+    starPoints: 6,        // 芒数：6 = 六芒星
+    starA: 9.2,
+    starABoost: 0.6,
+    starBreathBase: 0.72,
+    starBreathBoost: 0.28,
+    starScale: 3.25
   };
 
-  // 曲线点：与源码 point() 一致
+  /**
+   * 正星形多边形 {n/2} 的极径：给定极角 theta，返回边界到中心的距离。
+   *
+   * 几何：外顶点在 half + k*seg（半径 outer），内顶点在 k*seg（半径 inner），
+   * 相邻内外顶点之间是直线段（也就是三角形的边）。星形绕中心是星形域，
+   * 所以 r(theta) 单值，直接用「射线 × 线段」求交点即可。
+   *   inner / outer = cos(seg) / cos(half)   —— n=6 时 = cos60/cos30 = 1/√3（标准六芒星）
+   */
+  function starRadius(theta, outer, n) {
+    var seg = (Math.PI * 2) / n;         // 一个尖角占的角度：n=6 → 60°
+    var half = seg / 2;                  // 内顶点 → 外顶点：n=6 → 30°
+    var inner = outer * Math.cos(seg) / Math.cos(half);
+    var u = ((theta % seg) + seg) % seg;
+    if (u > half) u = seg - u;           // 关于外顶点所在的轴对称
+    var num = inner * outer * Math.sin(half);
+    var den = inner * Math.sin(u) + outer * Math.sin(half - u);
+    return den === 0 ? outer : num / den;
+  }
+
+  // 曲线点：与源码 point() 同构，只是把 r = a·cos(kt) 换成星形极径
   function point(progress, detailScale, config) {
     var t = progress * Math.PI * 2;
-    var a = config.roseA + detailScale * config.roseABoost;
-    var k = Math.round(config.roseK);
-    var r = a * (config.roseBreathBase + detailScale * config.roseBreathBoost) * Math.cos(k * t);
+    var a = config.starA + detailScale * config.starABoost;
+    var outer = a * (config.starBreathBase + detailScale * config.starBreathBoost) * config.starScale;
+    // 相位 0 时外顶点落在 30°+60°k，其中 90° 正好朝上 —— 六芒星一个尖角冲上
+    var r = starRadius(t, outer, Math.max(config.starPoints, 3));
     return {
-      x: 50 + Math.cos(t) * r * config.roseScale,
-      y: 50 + Math.sin(t) * r * config.roseScale
+      x: 50 + Math.cos(t) * r,
+      y: 50 + Math.sin(t) * r
     };
   }
 
