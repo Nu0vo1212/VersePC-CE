@@ -390,6 +390,12 @@ function showModpackInstallModal(fileName, sessionId) {
     modDownloadPollTimers = [];
   };
   const poll = async () => {
+    // 用户已经点了取消：本地收尾，别再等后端
+    if (typeof dlManager.isCancelRequested === 'function' && dlManager.isCancelRequested(taskId)) {
+      cleanup();
+      dlManager.update(taskId, { status: 'failed', message: '已取消' });
+      return;
+    }
     try {
       const data = await API.getModDownloadStatus(sessionId);
       const displayStatus = data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : data.status === 'cancelled' ? 'failed' : 'downloading';
@@ -853,9 +859,9 @@ async function downloadDepWithNestedDeps(projectId, source, versionId, savePath,
 
     const mainResult = await API.downloadModVersion(versionId, projectId, source, '', gameVersion, loader, savePath, false);
     if (mainResult.success) {
-      const mainDlId = 'dep-main-' + Date.now();
-      dlManager.add(mainDlId, mainResult.fileName || '前置模组', 'mod', '', '');
-      dlManager.update(mainDlId, { progress: 0, status: 'downloading', message: '下载中...' });
+      // 不再额外建一张没有 sessionId 的重复卡片（点了取消也停不下来），
+      // 真正带会话的卡片由 showModDownloadModal 建；这里只把会话挂到聚合任务下。
+      if (mainResult.sessionId) dlManager.addChildSession(taskId, mainResult.sessionId);
       dlManager.update(taskId, { progress: 10, message: '主模组下载中...' });
       showModDownloadModal(mainResult.fileName, mainResult.sessionId, savePath, currentModDetailData?.icon || '');
     } else {
@@ -866,6 +872,11 @@ async function downloadDepWithNestedDeps(projectId, source, versionId, savePath,
     const total = downloadableDeps.length;
     let downloaded = 0;
     for (const dep of downloadableDeps) {
+      // 用户中途取消了整组下载：剩下的依赖不要再发起
+      if (typeof dlManager.isCancelRequested === 'function' && dlManager.isCancelRequested(taskId)) {
+        dlManager.update(taskId, { status: 'failed', message: '已取消' });
+        return;
+      }
       downloaded++;
       const depProgress = Math.round(10 + (downloaded / total) * 90);
       dlManager.update(taskId, { progress: depProgress, message: `下载依赖 ${downloaded}/${total}: ${dep.title}` });
@@ -875,9 +886,7 @@ async function downloadDepWithNestedDeps(projectId, source, versionId, savePath,
           gameVersion, loader, savePath, false
         );
         if (depResult.success && depResult.sessionId) {
-          const depDlId = 'dep-' + dep.projectId + '-' + Date.now();
-          dlManager.add(depDlId, dep.title || depResult.fileName, 'mod', '', dep.icon || '');
-          dlManager.update(depDlId, { progress: 0, status: 'downloading', message: '下载中...' });
+          dlManager.addChildSession(taskId, depResult.sessionId);
           showModDownloadModal(depResult.fileName, depResult.sessionId, savePath, dep.icon || '');
         }
       } catch (e) {
@@ -1037,12 +1046,22 @@ function showModDownloadModal(fileName, sessionId, savePath, iconUrl) {
 
   let unknownRetries = 0;
   const poll = async () => {
+    // 用户已经点了取消：本地收尾，不再继续轮询
+    if (typeof dlManager.isCancelRequested === 'function' && dlManager.isCancelRequested(taskId)) {
+      dlManager.update(taskId, { status: 'failed', message: '已取消' });
+      return;
+    }
     try {
       const data = await API.getModDownloadStatus(sessionId);
+      // ⚠️ 'cancelled' 必须算终态：以前它被归到 'downloading'，
+      // 于是取消成功后卡片又跳回「下载中」并无限轮询。
+      const mapped = data.status === 'completed' ? 'completed'
+        : (data.status === 'failed' || data.status === 'cancelled') ? 'failed'
+        : 'downloading';
       dlManager.update(taskId, {
         progress: data.progress || 0,
-        status: data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : 'downloading',
-        message: data.message || '下载中...'
+        status: mapped,
+        message: data.status === 'cancelled' ? '已取消' : (data.message || '下载中...')
       });
       if (data.status === 'completed') {
         showToast(`${fileName} 下载完成`, 'success');
@@ -1051,6 +1070,9 @@ function showModDownloadModal(fileName, sessionId, savePath, iconUrl) {
       }
       if (data.status === 'failed') {
         showToast(`下载失败: ${data.message}`, 'error');
+        return;
+      }
+      if (data.status === 'cancelled') {
         return;
       }
       if (data.status === 'unknown' || !data.status) {
