@@ -118,18 +118,27 @@ const PageAssistant = {
               <div class="va-bubble" :class="{ 'va-bubble--thinking': isThinkingMsg(m) }">
                 <!-- 工具调用卡片：先执行、后正文，顺序符合直觉 -->
                 <div v-if="m.tools && m.tools.length" class="va-tools">
+                  <!-- 一条消息里攒了多个待确认操作 → 给一次性的批处理，不用一张张点 -->
+                  <div v-if="pendingCount(m) > 1" class="va-tools-batch">
+                    <span class="va-tools-batch-text">{{ pendingCount(m) }} 个操作待你确认</span>
+                    <button class="va-tool-run" @click="runAllPending(m)">全部执行</button>
+                    <button class="va-tool-skip" @click="cancelAllPending(m)">全部取消</button>
+                  </div>
                   <div v-for="(t, ti) in m.tools" :key="t.id || ti" class="va-tool" :class="'is-' + t.status">
                     <div class="va-tool-icon">
                       <svg v-if="t.status === 'done'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       <svg v-else-if="t.status === 'error'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>
-                      <svg v-else-if="t.status === 'cancelled'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                      <svg v-else-if="t.status === 'cancelled' || t.status === 'expired'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
                       <svg v-else-if="t.status === 'await'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                       <span v-else class="va-tool-spin"></span>
                     </div>
                     <div class="va-tool-main">
                       <div class="va-tool-label">{{ t.label || t.name }}</div>
+                      <!-- 待确认时把关键参数摊开，用户不用猜要执行的是什么 -->
+                      <div v-if="t.status === 'await' && toolArgsText(t)" class="va-tool-args">{{ toolArgsText(t) }}</div>
                       <div v-if="t.result" class="va-tool-result">{{ toolShort(t) }}</div>
                     </div>
+                    <div v-if="t.status === 'running' && elapsedText(t)" class="va-tool-time">{{ elapsedText(t) }}</div>
                     <div v-if="t.status === 'await'" class="va-tool-actions">
                       <button class="va-tool-run" @click="runPendingTool(m, t)">执行</button>
                       <button class="va-tool-skip" @click="cancelPendingTool(m, t)">取消</button>
@@ -299,7 +308,9 @@ const PageAssistant = {
       _streamFull: '',
       _flashTimer: null,
       _onDocDown: null,
-      _toolWaiters: null
+      _toolWaiters: null,
+      _tickTimer: null,
+      _now: Date.now()
     };
   },
 
@@ -354,6 +365,7 @@ const PageAssistant = {
 
   unmounted() {
     if (this._onDocDown) document.removeEventListener('mousedown', this._onDocDown);
+    this.stopTick();
   },
 
   methods: {
@@ -362,6 +374,9 @@ const PageAssistant = {
       if (this._initialized) return;
       this._initialized = true;
       if (!this._toolWaiters) this._toolWaiters = new Map();
+      // 刷新 / 重开后，落盘时还是「待确认」的卡片已经没人能执行了 —— 标成失效，
+      // 否则用户会看到一排永远点不动的「执行 / 取消」按钮。
+      this.markExpiredTools();
       const VA = window.VerseAssistant;
       if (!VA) {
         this.cfg = { ok: false, label: '助手未加载', hint: '助手脚本未加载，请重启应用。', model: '', providerName: '' };
@@ -749,6 +764,9 @@ const PageAssistant = {
       return new Promise((resolve) => {
         const runIt = () => {
           tool.status = 'running';
+          tool.startedAt = Date.now();
+          this._now = Date.now();
+          this.startTick();
           this.scrollBottom();
           let p;
           try {
@@ -785,6 +803,88 @@ const PageAssistant = {
 
     hasPendingTool(m) {
       return !!(m && m.tools && m.tools.some((t) => t.status === 'await'));
+    },
+
+    /** 会话里所有还挂着「待确认」的卡片 —— 它们已经没有对应的执行器了 */
+    markExpiredTools() {
+      let changed = false;
+      (this.convos || []).forEach((c) => {
+        (c.messages || []).forEach((m) => {
+          (m.tools || []).forEach((t) => {
+            if (t.status === 'await' || t.status === 'running') {
+              t.status = 'expired';
+              t.result = t.result || '这次确认已失效（会话已重新加载），请重新提问。';
+              changed = true;
+            }
+          });
+        });
+      });
+      if (changed) this.persist();
+    },
+
+    pendingTools(m) {
+      return (m && m.tools ? m.tools : []).filter((t) => t.status === 'await');
+    },
+
+    pendingCount(m) {
+      return this.pendingTools(m).length;
+    },
+
+    /** 批量执行：按顺序来，避免两个写操作同时改同一处状态 */
+    runAllPending(m) {
+      const list = this.pendingTools(m);
+      if (!list.length) return;
+      const runNext = (i) => {
+        if (i >= list.length) return;
+        const t = list[i];
+        this.runPendingTool(m, t);
+        // 上一个真正跑完（waiter 被消费）再跑下一个
+        setTimeout(() => runNext(i + 1), 60);
+      };
+      runNext(0);
+    },
+
+    cancelAllPending(m) {
+      this.pendingTools(m).slice().forEach((t) => this.cancelPendingTool(m, t));
+    },
+
+    /** 待确认卡片的「关键参数」：帮用户判断这一下点下去会发生什么 */
+    toolArgsText(t) {
+      const a = t && t.args;
+      if (!a || typeof a !== 'object') return '';
+      const keys = Object.keys(a).filter((k) => a[k] !== undefined && a[k] !== null && a[k] !== '');
+      if (!keys.length) return '';
+      return keys.slice(0, 3).map((k) => {
+        let v = a[k];
+        if (typeof v === 'boolean') v = v ? '是' : '否';
+        v = String(v);
+        return k + '：' + (v.length > 24 ? v.slice(0, 24) + '…' : v);
+      }).join(' · ');
+    },
+
+    /** 执行耗时：只在超过 2 秒后才显示，短操作不打扰 */
+    elapsedText(t) {
+      if (!t || !t.startedAt) return '';
+      const sec = Math.floor((this._now - t.startedAt) / 1000);
+      return sec >= 2 ? (sec >= 60 ? Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒' : sec + ' 秒') : '';
+    },
+
+    hasRunningTool() {
+      const msgs = this.currentMessages || [];
+      return msgs.some((m) => m.tools && m.tools.some((t) => t.status === 'running'));
+    },
+
+    /** 只有真的有工具在跑时才让 _now 跳动，避免无事每秒重渲染 */
+    startTick() {
+      if (this._tickTimer) return;
+      this._tickTimer = setInterval(() => {
+        if (this.hasRunningTool()) this._now = Date.now();
+        else this.stopTick();
+      }, 1000);
+    },
+
+    stopTick() {
+      if (this._tickTimer) { clearInterval(this._tickTimer); this._tickTimer = null; }
     },
 
     /**
