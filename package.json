@@ -1,6 +1,6 @@
 {
   "name": "verse-tauri",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "VersePC-CE - 基于 Tauri 的 Minecraft 启动器（VersePC2 社区版）",
   "license": "GPL-3.0",
   "private": true,
