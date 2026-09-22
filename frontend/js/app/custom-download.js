@@ -38,9 +38,10 @@ const dlManager = {
         this._searchQuery = (q || '').trim().toLowerCase();
         this.render();
     },
-    add(id, name, type, sessionId, iconUrl) {
+    add(id, name, type, sessionId, iconUrl, cancelKind) {
         if (this.tasks.has(id)) return;
-        this.tasks.set(id, { id, name, type, sessionId, iconUrl: iconUrl || '', progress: 0, status: 'downloading', message: '', files: [], stageHistory: [], expanded: false });
+        // cancelKind：见 _cancelSession，默认是按 type 推断（mod/modpack→resource、other→custom…）
+        this.tasks.set(id, { id, name, type, sessionId, cancelKind: cancelKind || '', iconUrl: iconUrl || '', progress: 0, status: 'downloading', message: '', files: [], stageHistory: [], childSessions: [], expanded: false });
         this.order.push(id);
         try { if (window.AppLog) window.AppLog.op('下载', '新建任务「' + (name || id) + '」（类型 ' + (type || 'other') + '）'); } catch (e) {}
         this.updateFab();
@@ -53,23 +54,107 @@ const dlManager = {
         this.updateFab();
         this.render();
     },
+    /**
+     * 取消一个后端会话。
+     *
+     * ⚠️ 关键：不同类型任务的会话登记在不同的注册表里，取消接口必须一一对应，
+     * 否则点了「取消」后端根本没收到，下载照跑（历史 bug：所有任务都发 /api/install-cancel）。
+     *   - install : 版本安装   → /api/install-cancel            （install::session）
+     *   - resource: 模组/整合包/资源 → /api/resources/download-cancel（resources_session）
+     *   - custom  : 工具箱自定义下载 / FRP frpc → /api/download-custom/cancel（custom_session）
+     *   - java    : Java 运行时 → API.cancelJavaDownload
+     * 类型不确定时按顺序都试一遍，只要有一个成功就算取消到了。
+     */
+    async _cancelSession(sessionId, kind) {
+        const attempt = async (k) => {
+            if (k === 'java') {
+                const r = await API.cancelJavaDownload(sessionId);
+                return !!(r && r.success !== false);
+            }
+            if (k === 'install') {
+                const res = await _customDlFetch(`/api/install-cancel?sessionId=${encodeURIComponent(sessionId)}`, { method: 'POST' });
+                const j = await res.json().catch(() => ({}));
+                return !!(j && j.success);
+            }
+            if (k === 'modpack') {
+                // 本地整合包导入（.mrpack/.zip 拖拽进来那种）：会话是前端生成的 token
+                const res = await _customDlFetch('/api/modpack/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cancelToken: sessionId })
+                });
+                const j = await res.json().catch(() => ({}));
+                return !!(j && j.success);
+            }
+            if (k === 'custom') {
+                const res = await _customDlFetch('/api/download-custom/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId })
+                });
+                const j = await res.json().catch(() => ({}));
+                return !!(j && j.success);
+            }
+            // resource（默认）
+            const res = await _customDlFetch('/api/resources/download-cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId })
+            });
+            const j = await res.json().catch(() => ({}));
+            return !!(j && j.success);
+        };
+
+        const order = kind === 'java' ? ['java']
+            : (kind === 'install' || kind === 'version') ? ['install']
+            : (kind === 'resource' || kind === 'mod') ? ['resource']
+            : kind === 'modpack' ? ['resource', 'modpack']
+            : (kind === 'custom' || kind === 'other') ? ['custom', 'resource']
+            : ['install', 'resource', 'custom']; // 类型未知：三个都试，务必让取消真的送达
+
+        let lastErr = null;
+        for (const k of order) {
+            try {
+                if (await attempt(k)) return true;
+            } catch (e) {
+                lastErr = e;
+            }
+        }
+        if (lastErr) throw lastErr;
+        return false;
+    },
+
+    /** 取消任务：同时会取消挂在它下面的子会话（例如「前置模组」聚合任务） */
     async cancel(id) {
         const task = this.tasks.get(id);
         if (!task || task.status !== 'downloading') return;
+        if (task._cancelRequested) return; // 防抖：连点只发一次
+
+        task._cancelRequested = true;
         task.status = 'cancelling';
         task.message = '正在取消...';
         this.updateDom(id);
+
+        const sids = [];
+        if (task.sessionId) sids.push(task.sessionId);
+        (task.childSessions || []).forEach(s => { if (s && sids.indexOf(s) === -1) sids.push(s); });
+
         try {
-            if (task.sessionId) {
-                if (task.type === 'java') {
-                    await API.cancelJavaDownload(task.sessionId);
-                } else {
-                    await _customDlFetch(`/api/install-cancel?sessionId=${encodeURIComponent(task.sessionId)}`, { method: 'POST' });
+            if (!sids.length) {
+                // 纯前端任务（没有后端会话）：只能就地停止本地轮询
+                task.status = 'failed';
+                task.message = '已取消';
+                task.progress = Math.min(task.progress, 100);
+            } else {
+                let failed = 0;
+                for (const sid of sids) {
+                    const ok = await this._cancelSession(sid, task.cancelKind || task.type);
+                    if (!ok) failed++;
                 }
+                task.status = 'failed';
+                task.message = failed >= sids.length ? '取消失败：会话已结束' : '已取消';
+                task.progress = Math.min(task.progress, 100);
             }
-            task.status = 'failed';
-            task.message = '已取消';
-            task.progress = Math.min(task.progress, 100);
         } catch (e) {
             task.status = 'failed';
             task.message = '取消失败: ' + (e.message || e);
@@ -77,9 +162,29 @@ const dlManager = {
         this.updateFab();
         this.updateDom(id);
     },
+
+    /** 把子会话挂到聚合任务上，取消父任务时一并取消 */
+    addChildSession(id, sessionId) {
+        const task = this.tasks.get(id);
+        if (!task || !sessionId) return;
+        if (!task.childSessions) task.childSessions = [];
+        if (task.childSessions.indexOf(sessionId) === -1) task.childSessions.push(sessionId);
+    },
+
+    /** 任务是否已请求取消（轮询循环用它决定是否收手） */
+    isCancelRequested(id) {
+        const task = this.tasks.get(id);
+        return !!(task && task._cancelRequested);
+    },
     update(id, data) {
         const task = this.tasks.get(id);
         if (!task) return;
+        // 已点过取消、后端还没把状态翻成 cancelled 之前，别把卡片刷回「下载中」，
+        // 否则用户看到的就是「点了停止它还在下」。
+        if (task._cancelRequested) {
+            const s = data.status;
+            if (!s || s === 'downloading' || s === 'cancelling') return;
+        }
         const targetProgress = Math.min(data.progress || 0, 100);
         let smoothProgress;
         if (data.status === 'completed' || data.status === 'failed') {
