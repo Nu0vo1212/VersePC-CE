@@ -38,6 +38,7 @@
   var HISTORY_FOR_AI = 16;                      // 每次发给模型的历史条数
   var TOOL_MAX_ROUNDS = 6;                      // 单次提问最多几轮工具调用
   var TOOL_RESULT_CLIP = 3500;                  // 单条工具结果回灌上限（字符）
+  var TOOL_FAIL_LIMIT = 3;                      // 连续失败几次就停下来让模型收尾（避免死循环重试）
 
   // 各页面的中文名（用于「带我去某页」与上下文注入）
   var PAGE_LABELS = {
@@ -123,6 +124,10 @@
   // ========================================================================
   var LOCAL_FAQ = [
     {
+      keys: ['装fabric', '装forge', '装neoforge', '加载器怎么装', '怎么装加载器', '装个带fabric的', '装个带forge的'],
+      a: '**装带加载器的版本**\n\n1. 左侧 **下载（版本）**，选好游戏版本后点加载器卡片（Fabric / Forge / NeoForge），选加载器版本 → 确认安装。\n2. 也可以直接跟我说「帮我装一个带 Fabric 的 1.20.1」，我会一步装好（Fabric 会连 Fabric API 一起装），进度在右下角「下载」里看。\n\n已经装过原版、只想再加个加载器：让我「给 1.20.1 装个 Fabric」就行。'
+    },
+    {
       keys: ['怎么装模组', '安装模组', '装mod', '模组怎么装', '怎么加模组', '模组放哪'],
       a: '**装模组**\n\n1. 左侧点 **资源 → 模组**，先在上方筛选器里选好 **游戏版本** 和 **加载器**（Fabric / Forge / NeoForge / Quilt，要和你要启动的版本一致）。\n2. 搜索模组 → 进详情页 → 选对应版本的下载按钮安装。\n3. 装完在 **主页** 选择版本启动即可。\n\n注意：模组必须和游戏的**大版本**、**加载器**都对得上，否则游戏会崩溃或直接不加载。'
     },
@@ -168,6 +173,7 @@
   // 快捷建议（欢迎页的卡片）
   // ========================================================================
   var SUGGESTIONS = [
+    { label: '装个带 Fabric 的版本', q: '帮我装一个带 Fabric 的 1.20.1。' },
     { label: '现在装了哪些版本？', q: '我当前装了哪些游戏版本？帮我简单说明一下。' },
     { label: '看看崩溃日志', q: '帮我分析一下最近的崩溃日志。' },
     { label: '装了哪些模组？', q: '我现在这个版本装了哪些模组？' },
@@ -491,8 +497,16 @@
       '- 用户问「我装了哪些版本 / 什么模组 / 有没有崩溃日志 / Java 有哪些」时，先调用对应工具拿真实数据再回答，不要凭上下文猜。',
       '- 用户说「带我去 / 打开 / 帮我装 / 帮我启动」时，直接调用相应工具。',
       '- 查询类工具会立即执行；会改状态的工具（装模组、启动游戏、切换版本或账户等）**系统会自动弹确认卡片让用户点一下**，你不需要反复确认，也不要自己假装已经执行完——等工具结果回来再陈述结果。',
-      '- 工具执行失败时，把失败原因用中文讲清楚，并给一个可替代的做法。',
+      '- 工具执行失败时，把失败原因用中文讲清楚，并给一个可替代的做法。同一个操作连续失败就不要再重试，直接说明情况。',
       '- 一次不要调用没必要的一堆工具；通常 1~2 个就够。拿到结果后就用中文总结，不要贴原始 JSON。',
+      '- 同一个查询类工具在一次回答里不要重复调用（结果会被复用），别为了"确认一下"反复查。',
+      '',
+      '【装版本 / 装加载器（常见任务，按这个来）】',
+      '- 用户要「装 1.20.1 的 Fabric / Forge / NeoForge 版」：直接调用 install_game_version 并带上 loader 参数，一步装好「原版+加载器」，进度会进下载任务列表。**不要**先装原版再单独装加载器分两步。',
+      '- 只有在用户**已经装了原版**、想再加装加载器时才用 install_loader。',
+      '- 装 Fabric 默认会一起装 Fabric API（绝大多数模组需要它）；用户明确不要才传 fabricApi=false。',
+      '- 用户想指定加载器版本时，先用 list_loader_versions 查可用版本，再让用户挑或直接挑最新的稳定版。',
+      '- 安装类操作都在后台跑，不会立刻出结果：告诉用户进度在右下角「下载」里看，不要说"已经装好了"。',
       '',
       '【回答风格】',
       '- 中文；先给结论，再给步骤；简洁、可操作。',
@@ -661,6 +675,18 @@
     hooks = hooks || {};
     var maxRounds = hooks.maxRounds || TOOL_MAX_ROUNDS;
     var round = 0;
+    var failStreak = 0;
+    // 本次提问内缓存「只读工具」的结果：模型经常在一句话里把 list_versions / get_launcher_state
+    // 连着调两三次，回灌同样的内容既慢又费 token。命中缓存直接复用（写操作绝不缓存）。
+    var cache = {};
+
+    function cacheKey(call) {
+      return call.name + '|' + String(call.arguments || '');
+    }
+
+    function isWrite(name) {
+      return !!(window.VerseAITools && window.VerseAITools.isWrite && window.VerseAITools.isWrite(name));
+    }
 
     function step() {
       if (hooks.signal && hooks.signal.aborted) return Promise.resolve({ ok: false, aborted: true });
@@ -679,29 +705,69 @@
         });
 
         round++;
-        var i = 0;
-        function nextTool() {
+        // 连续失败到上限后就不再往下跑工具，让模型收尾
+        var stopped = false;
+
+        function isFailText(t) { return /^(工具执行失败|用户取消|用户中止)/.test(String(t || '')); }
+
+        function finishAfterFail() {
+          messages.push({
+            role: 'user',
+            content: '（上面连续 ' + failStreak + ' 次操作都失败了，不要再重试同样的操作。直接用中文说明失败原因，并给出用户可以自己做的替代步骤。）'
+          });
+          return chat(messages, { signal: hooks.signal }).then(function (r) {
+            return r.ok ? { ok: true, text: r.text || '' } : r;
+          });
+        }
+
+        /** 执行单个工具调用（含缓存与失败计数），并把结果回灌到 messages */
+        function runOne(call) {
+          var key = cacheKey(call);
+          var w = isWrite(call.name);
+          // 命中只读缓存 → 直接复用结果，不再真的跑一遍
+          if (!w && Object.prototype.hasOwnProperty.call(cache, key)) {
+            messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: _clipText(cache[key]) });
+            return Promise.resolve();
+          }
+          return Promise.resolve()
+            .then(function () { return hooks.onToolCall ? hooks.onToolCall(call) : '（未实现工具执行）'; })
+            .then(function (out) {
+              var text = String(out == null ? '' : out);
+              if (!w && !isFailText(text)) cache[key] = text;
+              messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: _clipText(text) });
+              if (isFailText(text)) {
+                failStreak++;
+                if (failStreak >= TOOL_FAIL_LIMIT) stopped = true;
+              } else {
+                failStreak = 0;
+              }
+            });
+        }
+
+        /**
+         * 从 idx 继续：
+         *   · 连续的**只读**调用并行跑（查版本 + 查模组不用排队等）；
+         *   · 写操作保持串行（要用户逐个确认，且前后常有依赖）。
+         */
+        function nextFrom(idx) {
+          if (stopped) return finishAfterFail();
           if (hooks.signal && hooks.signal.aborted) return Promise.resolve({ ok: false, aborted: true });
-          if (i >= calls.length) {
+          if (idx >= calls.length) {
             if (round >= maxRounds) {
               return Promise.resolve({ ok: true, text: '（已经连续执行了 ' + round + ' 轮工具调用，先停在这里；如果还需要继续，直接说「继续」。）' });
             }
             return step();
           }
-          var call = calls[i++];
-          return Promise.resolve()
-            .then(function () { return hooks.onToolCall ? hooks.onToolCall(call) : '（未实现工具执行）'; })
-            .then(function (out) {
-              messages.push({
-                role: 'tool',
-                toolCallId: call.id,
-                name: call.name,
-                content: _clipText(out)
-              });
-              return nextTool();
-            });
+          if (!isWrite(calls[idx].name)) {
+            var batch = [];
+            var j = idx;
+            while (j < calls.length && !isWrite(calls[j].name)) batch.push(calls[j++]);
+            return Promise.all(batch.map(runOne)).then(function () { return nextFrom(j); });
+          }
+          return runOne(calls[idx]).then(function () { return nextFrom(idx + 1); });
         }
-        return nextTool();
+
+        return nextFrom(0);
       });
     }
     return step();
